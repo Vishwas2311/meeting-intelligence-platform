@@ -8,6 +8,7 @@ Verified on 16 October 2026:
 
 - Backend test suite: 5 tests passed; test fixtures disable Azure Speech credentials to avoid live cloud calls.
 - Frontend production build: `npm run build` passed.
+- Local development proxy: `npm test` passed all 6 checks for automatic authentication, localhost/origin restrictions, and production isolation.
 - Azure OpenAI: the `gpt-6.1-sol` deployment generated meeting minutes from a synthetic transcript, validated against the application's schema.
 - Browser checks passed for authentication, history, transcripts, summary generation, draft validation, editing, approval, and new-meeting reset using synthetic data.
 - Desktop, mobile (390 px), and tablet (768 px) layouts were checked. Live audio capture was excluded from this synthetic test run.
@@ -76,7 +77,7 @@ npm install
 npm run dev
 ```
 
-Visit http://localhost:5173, open Configuration, and enter only the `APP_API_TOKEN` value from backend `.env`. Click Save Connection to validate and save the token, then Test Backend to verify authenticated access. Choose microphone, confirm consent, and click Start Meeting. Browser microphone access is permitted on localhost or HTTPS. Confirm **both** actual audio capture and Azure STT connection before assuming a complete transcript.
+Visit http://localhost:5173. During local development, Vite loads `APP_API_TOKEN` from backend `.env` and authenticates API requests automatically. Open Configuration and click Test Backend to check the connection; no token needs to be pasted. Set frontend `VITE_API_URL` to your backend origin if its port differs from 8000, and restart both services after changing the token. Production builds retain the manual-token connection until SSO is integrated. Choose microphone, confirm consent, and click Start Meeting. Browser microphone access is permitted on localhost or HTTPS. Confirm **both** actual audio capture and Azure STT connection before assuming a complete transcript.
 
 `GET http://localhost:8000/docs` is the API specification. Start/Pause/Stop endpoints update server state but the **browser** controls actual audio capture.
 

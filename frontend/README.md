@@ -2,6 +2,12 @@
 
 React + TypeScript + Vite. The Azure Speech browser SDK runs continuous recognition (`recognizing` interim, `recognized` final) using an authorization token from `POST /api/speech/token`. Source audio is independently recorded to IndexedDB then synced as recoverable chunks to FastAPI.
 
-Set `VITE_API_URL` in `.env` (`http://localhost:8000` for local development); install dependencies with `npm install` and start with `npm run dev`. Browser security requires HTTPS or localhost for microphone capture.
+Set `VITE_API_URL` in `.env` (`http://localhost:8000` by default; use your actual backend port). Install dependencies with `npm install` and start with `npm run dev`.
+
+During local development, Vite reads `APP_API_TOKEN` from `backend/.env` and attaches it to proxied `/api` requests. Open the app directly; no token entry is required. The dev server binds to `127.0.0.1` and rejects API requests from remote clients or other origins. Never put the token in a `VITE_` variable. Restart the backend and frontend after changing the token.
+
+The credential proxy is absent from production builds and `vite preview`. The existing manual-token connection remains available in those builds; production deployments should use SSO. Browser security requires HTTPS or localhost for microphone capture.
+
+Run `npm test` for the local proxy access checks and `npm run build` for TypeScript and production compilation.
 
 Limitations: microphone is not Teams system audio; tab audio requires browser support; browser shutdown stops capture; unsynced chunks can persist locally but storage quota may be exceeded; support for per-chunk audio transcription is not automatic. Browser service-worker cannot continue microphone capture after browser/tab closes.

@@ -9,6 +9,15 @@
 - Chrome UI checks covered empty/invalid/valid tokens, connection persistence, recording consent, history, transcript display, summary generation, invalid JSON, draft saving, approval, empty-transcript failure, and new-meeting reset.
 - Desktop, 390 px mobile, and 768 px tablet layouts were checked. Browser console inspection reported no warnings or JavaScript errors in the final test tab.
 
+## Automatic local environment authentication
+
+- Local `npm run dev` reads `APP_API_TOKEN` from `backend/.env` on the Vite server and forwards authenticated `/api` requests. No token entry is required in the local UI.
+- The proxy only accepts local clients and matching browser origins. Direct backend requests still require a valid token.
+- Six `npm test` checks pass for the proxy access rules, server-only credential handling, invalid configuration, and production/preview isolation.
+- Live checks passed for localhost and 127.0.0.1, HTTP 403 on cross-origin requests, and HTTP 401 on unauthenticated direct backend requests.
+- No configured credential was found in the served API module or production assets. The backend `.env` file was inaccessible through Vite.
+- A fresh Chrome tab loaded meeting history and passed Test Backend without entering a token. This automatic flow is restricted to development; production builds keep the existing authentication flow.
+
 ## Fixes included
 
 - Connection saving validates the token before storing it. Editing the token does not make authentication requests on every change, and successful saves clear old errors.
