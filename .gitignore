@@ -1,0 +1,28 @@
+# Local secrets; commit only the sanitized examples.
+.env
+.env.*
+!.env.example
+
+# Dependencies and generated files.
+.venv/
+venv/
+node_modules/
+dist/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.tsbuildinfo
+
+# Local recordings, databases, and logs.
+/backend/data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.log
+
+# Local archives and OS metadata.
+*.zip
+.DS_Store
+Thumbs.db
