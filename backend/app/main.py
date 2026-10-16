@@ -144,6 +144,8 @@ def chunks(mid:str,db:Session=Depends(db_session),actor:str=Depends(require_acto
 @app.post('/api/meetings/{mid}/mom/generate',status_code=202)
 def generate(mid:str,db:Session=Depends(db_session),actor:str=Depends(require_actor)):
     m=get_meeting(db,mid,actor)
+    mom=db.get(Mom,mid)
+    if mom and mom.status=='approved':raise HTTPException(409,'Approved MoM cannot be regenerated; create a revision workflow')
     if m.status not in ('stopped','ready_review','processing'):raise HTTPException(409,'Stop meeting before MoM generation')
     pending=db.scalar(select(Job).where(Job.meeting_id==mid,Job.kind=='generate_mom',Job.status.in_(['pending','running'])))
     if pending:return {'job_id':pending.id,'status':pending.status}

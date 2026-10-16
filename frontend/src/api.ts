@@ -2,8 +2,8 @@ const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const tokenKey='meeting-intelligence-dev-token';
 export function setToken(token:string){sessionStorage.setItem(tokenKey,token)}
 export function getToken(){return sessionStorage.getItem(tokenKey)||''}
-export async function request(path:string,method='GET',body?:unknown){
- const r=await fetch(`${API}${path}`,{method,headers:{'Authorization':`Bearer ${getToken()}`,...(body!==undefined?{'Content-Type':'application/json'}:{})},body:body!==undefined?JSON.stringify(body):undefined});
+export async function request(path:string,method='GET',body?:unknown,token=getToken()){
+ const r=await fetch(`${API}${path}`,{method,headers:{'Authorization':`Bearer ${token}`,...(body!==undefined?{'Content-Type':'application/json'}:{})},body:body!==undefined?JSON.stringify(body):undefined});
  let data:any;try{data=await r.json()}catch{data={detail:`HTTP ${r.status}`}}
  if(!r.ok)throw new Error(typeof data.detail==='string'?data.detail:`Request failed (${r.status})`);return data;
 }

@@ -40,3 +40,18 @@ def test_no_unconfigured_azure_or_form_calls(client,auth):
     mid=create(client,auth)
     assert client.post('/api/speech/token',headers=auth).status_code==503
     assert client.post(f'/api/meetings/{mid}/form/submit',headers=auth).status_code==409
+
+def test_approved_minutes_cannot_be_overwritten(client,auth):
+    from app.database import SessionLocal
+    from app.models import Mom
+    mid=create(client,auth)
+    client.post(f'/api/meetings/{mid}/start',headers=auth)
+    client.post(f'/api/meetings/{mid}/stop',headers=auth)
+    data={'title':'Reviewed minutes','summary':'Keep the approved record','transcript_gaps':[]}
+    with SessionLocal() as db:
+        db.add(Mom(meeting_id=mid,data=data,status='draft'));db.commit()
+    assert client.post(f'/api/meetings/{mid}/mom/approve',headers=auth,json={'approved':True}).status_code==200
+    assert client.patch(f'/api/meetings/{mid}/mom',headers=auth,json={**data,'summary':'Overwrite'}).status_code==409
+    assert client.post(f'/api/meetings/{mid}/mom/generate',headers=auth).status_code==409
+    assert client.get(f'/api/meetings/{mid}/mom',headers=auth).json()['data']==data
+    assert client.get(f'/api/meetings/{mid}/jobs',headers=auth).json()==[]

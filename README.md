@@ -6,10 +6,11 @@ A React/TypeScript live-meeting workspace and a FastAPI/Python backend for Azure
 
 Verified on 16 October 2026:
 
-- Backend test suite: 4 tests passed with cloud credentials disabled for tests.
+- Backend test suite: 5 tests passed; test fixtures disable Azure Speech credentials to avoid live cloud calls.
 - Frontend production build: `npm run build` passed.
 - Azure OpenAI: the `gpt-6.1-sol` deployment generated meeting minutes from a synthetic transcript, validated against the application's schema.
-- Browser dashboard and backend/database readiness checks passed locally.
+- Browser checks passed for authentication, history, transcripts, summary generation, draft validation, editing, approval, and new-meeting reset using synthetic data.
+- Desktop, mobile (390 px), and tablet (768 px) layouts were checked. Live audio capture was excluded from this synthetic test run.
 
 Real credentials belong in local `.env` files. The repository includes sanitized `.env.example` templates; recordings, databases, and secrets are excluded.
 
@@ -75,7 +76,7 @@ npm install
 npm run dev
 ```
 
-Visit http://localhost:5173, open Configuration, enter `APP_API_TOKEN` from backend .env. Choose microphone, confirm consent, click Start Meeting. Browser microphone access is permitted on localhost or HTTPS. Confirm **both** actual audio capture and Azure STT connection before assuming a complete transcript.
+Visit http://localhost:5173, open Configuration, and enter only the `APP_API_TOKEN` value from backend `.env`. Click Save Connection to validate and save the token, then Test Backend to verify authenticated access. Choose microphone, confirm consent, and click Start Meeting. Browser microphone access is permitted on localhost or HTTPS. Confirm **both** actual audio capture and Azure STT connection before assuming a complete transcript.
 
 `GET http://localhost:8000/docs` is the API specification. Start/Pause/Stop endpoints update server state but the **browser** controls actual audio capture.
 

@@ -8,6 +8,8 @@ def client(monkeypatch,tmp_path):
     monkeypatch.setenv('DATABASE_URL',f'sqlite:///{tmp_path}/test.db')
     monkeypatch.setenv('STORAGE_DIR',str(tmp_path/'storage'))
     monkeypatch.setenv('APP_API_TOKEN','test-token')
+    monkeypatch.setenv('AZURE_SPEECH_KEY','')
+    monkeypatch.setenv('AZURE_SPEECH_REGION','')
     from app.config import get_settings
     get_settings.cache_clear()
     # Source modules are freshly imported after test environment is in place.

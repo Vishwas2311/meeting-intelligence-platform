@@ -1,12 +1,31 @@
 # Verification record (2026-10-16)
 
-- Backend: `python -m pytest -q` => **4 passed**; `python -m compileall -q backend/app` => successful.
-- Frontend: TSX syntax parse/transpilation => successful. Node packages were not available locally and `npm install` timed out; **Vite compilation and runtime UI have NOT been verified**.
-- Azure credentials not supplied; **no live Azure Speech WebSocket integration test**.
-- LLM API key/model not supplied; **no live MoM inference test**.
-- No internal form API/schema supplied; **form submission disabled by default**.
-- Fully automatic audio gap recovery and Teams desktop remote participant capture not implemented. Treat the current package as an integration build with known gaps, not production-certified software.
+## Verified locally
+
+- Backend: `python -m pytest -q` => **5 passed**. Test fixtures disable Azure Speech credentials, including when a local `.env` contains real keys.
+- Frontend: `npm run build` => TypeScript and Vite production build passed. Vite reports a nonblocking bundle-size warning.
+- Running UI and authenticated API/database readiness checks passed.
+- Azure OpenAI: the configured `gpt-6.1-sol` deployment generated minutes from a synthetic transcript; the application validated the response schema.
+- Chrome UI checks covered empty/invalid/valid tokens, connection persistence, recording consent, history, transcript display, summary generation, invalid JSON, draft saving, approval, empty-transcript failure, and new-meeting reset.
+- Desktop, 390 px mobile, and 768 px tablet layouts were checked. Browser console inspection reported no warnings or JavaScript errors in the final test tab.
+
+## Fixes included
+
+- Connection saving validates the token before storing it. Editing the token does not make authentication requests on every change, and successful saves clear old errors.
+- Draft saves clear stale errors. Unsaved edits must be saved before approval, and approved minutes are read-only.
+- The API rejects regeneration of approved minutes; a regression test verifies that their saved content remains unchanged.
+- New Meeting clears the remembered selection and resets transcript, consent, statuses, jobs, and messages.
+- Pending/failed summary jobs have appropriate messages; completed jobs clear outdated queue notices.
+- Tablet sidebar brand text stays inside the sidebar.
+
+## Not verified or blocked
+
+- Synthetic data only was used. Microphone/tab capture, real recording pause/resume, audio chunk timing, offline recording, and reconnection were not exercised.
+- Azure Speech authentication remains unresolved; no successful live Speech streaming test has been completed.
+- The internal form integration remains disabled. Its confirmation was checked and the API rejected submission with HTTP 503; the real destination was not contacted.
+- Browser automation stalled after cancelling the native submission dialog. Testing continued in a fresh tab; the API confirmed that no submission was queued.
+- Fully automatic audio gap recovery and all-participant Teams desktop capture are not implemented. The project remains an integration build.
 
 ## Before production release
 
-Run npm build in a network-enabled development machine; correct any package type errors; run at least one 90-minute meeting and inject connectivity outages; validate transcript timestamps after reconnect; check local audio reassembly/transcoding before Azure Fast STT recovery; implement desktop agent if Teams desktop all-participant capture required; deploy proper SSO, managed object storage, migrations, worker queue, secret vault, backup and observability; integrate exact approved internal form API; perform security review.
+Validate a long meeting with valid Speech credentials and controlled network outages. Check transcript timestamps after reconnect and local audio reassembly/transcoding before Fast Transcription recovery. Add an approved desktop capture integration if Teams desktop audio is required. Complete SSO, managed storage, schema migrations, durable job scheduling, secret management, backup, observability, the approved internal form mapping, and a security review.
