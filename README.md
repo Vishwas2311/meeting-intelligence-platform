@@ -15,7 +15,7 @@ Verified on 16 October 2026:
 
 Real credentials belong in local `.env` files. The repository includes sanitized `.env.example` templates; recordings, databases, and secrets are excluded.
 
-UI update verified on 17 October 2026: recording controls and the live transcript share a single desktop viewport. Long transcripts scroll inside their pane; Follow latest releases when you scroll up. The stopwatch updates in tenths, freezes while paused, and keeps its stopped value. Browser checks used silent synthetic audio and mocked transcripts across five viewport sizes from 820�700 to 1920�870, plus a 390px mobile layout. The actual local backend connection check also passed. Live Azure Speech recognition was not retested in this UI pass.
+UI update verified on 17 October 2026: recording controls and the live transcript share a single desktop viewport. Long transcripts scroll inside their pane; Follow latest releases when you scroll up. The stopwatch updates in tenths, freezes while paused, and keeps its stopped value. Browser checks used silent synthetic audio and mocked transcripts across five viewport sizes from 820×700 to 1920×870, plus a 390px mobile layout. The actual local backend connection check also passed. Live Azure Speech recognition was not retested in this UI pass.
 
 The proposed MoM layout is available at `http://localhost:5173/mom-preview.html`
 while the frontend development server is running. Its larger tabs, topic

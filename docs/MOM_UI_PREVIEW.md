@@ -22,10 +22,10 @@ editor until the new layout is integrated with the backend schema.
 
 ## Verification
 
-Browser checks passed at 1920�870, 1366�768, 1280�720, 1024�768, and 820�700,
+Browser checks passed at 1920×870, 1366×768, 1280×720, 1024×768, and 820×700,
 including both example topics and all discussion tabs. The example content fits
 the desktop frame without page scrolling or clipped text. Mobile section views
-were checked at 390�844. Keyboard tab navigation, transcript evidence, editing,
+were checked at 390×844. Keyboard tab navigation, transcript evidence, editing,
 cancellation, saving, missing owner/date labels, and approval controls were also
 checked.
 
