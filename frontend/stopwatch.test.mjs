@@ -5,8 +5,12 @@ import ts from 'typescript';
 
 // Use the existing compiler so this test also runs on the supported Node 20 runtime.
 const source = await readFile(new URL('./src/stopwatch.ts', import.meta.url), 'utf8');
-const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
-const { Stopwatch, formatElapsed } = await import('data:text/javascript;base64,' + Buffer.from(outputText).toString('base64'));
+const { outputText } = ts.transpileModule(source, {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+});
+const { Stopwatch, formatElapsed } = await import(
+  'data:text/javascript;base64,' + Buffer.from(outputText).toString('base64')
+);
 
 test('elapsed time follows the clock even when display ticks are delayed', () => {
   let now = 100;

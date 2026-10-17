@@ -28,6 +28,13 @@ python -m app.worker
 ```
 
 7. Open http://127.0.0.1:8000/docs. Use `Authorization: Bearer <APP_API_TOKEN>`.
-8. Test backend: `python -m pytest -q`.
+8. Install test tools with `python -m pip install -r requirements-dev.txt`, then
+   test the backend with `python -m pytest -q`.
 
-**Note:** This is a backend-first developer scaffold. It does not yet capture a Teams meeting or display live captions without a frontend capture client. Cloud integrations have not been exercised with your keys and may require protocol-specific adjustments. Read README.md and docs/INTEGRATION_CHECKLIST.md before attempting deployment.
+9. In a third terminal, open `frontend`, run `npm ci`, and then `npm run dev`.
+   Configure `frontend/.env` from its example first. Open http://localhost:5173.
+
+**Note:** This is an integration build. Browser microphone capture does not
+automatically capture every Teams desktop participant. Live Speech connectivity,
+recovery, and production integrations still need validation. Read README.md,
+CONTRIBUTING.md, and docs/INTEGRATION_CHECKLIST.md before deployment.

@@ -11,10 +11,13 @@ editor until the new layout is integrated with the backend schema.
 
 ## Layout
 
-- Desktop: summary, selected discussion topic, decisions, and action cards share
-  one viewport. Plans and open questions switch within the discussion panel.
-- Larger section tabs have icons and a solid blue selected state. Wider topic
-  buttons use readable labels, numbered badges, and selected borders.
+- Desktop: a full-width summary leads into discussion on the left and decisions
+  and action cards on the right, all within one viewport.
+- A compact agenda sits beside the selected topic on larger screens. Narrower
+  screens move it above the reading pane. Underlined section navigation switches
+  between topics, plans, and questions without competing rows of boxed buttons.
+- The toolbar keeps compact, matching 34px controls; headings and spacing establish
+  the content hierarchy.
 - Supporting transcript quotes open in a contained dialog.
 - Mobile: Overview, Discussion, Decisions, and Actions switch within the same
   viewport. Long detail text scrolls inside its panel.

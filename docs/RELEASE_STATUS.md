@@ -1,4 +1,45 @@
-# Verification record (2026-10-16)
+# Verification record
+
+## Current workflow — 18 October 2026
+
+- The application workflow is recording, transcription, MoM generation, draft
+  editing, and approval. Approved minutes stay in the application.
+- Backend Ruff checks and 19 tests passed. Frontend formatting, TypeScript,
+  13 tests, and the production build passed.
+- Synthetic browser checks verified draft saving, approval, read-only approved
+  minutes, and desktop/mobile layouts. No real microphone or cloud calls were used.
+- The local API and worker were restarted. API/database readiness and the local
+  frontend connection passed. Existing meeting data was preserved.
+
+## Code-quality pass — 18 October 2026
+
+- Added `.editorconfig`, frontend Prettier, backend Ruff, strict TypeScript unused
+  checks, documented contribution rules, and GitHub Actions checks. The workflow
+  is prepared locally; it has not run on GitHub yet.
+- Reformatted frontend source, styles, tests, configuration, and the MoM preview;
+  reformatted backend source and tests. Removed unused imports, variables, and
+  refs. Development tooling is separate from Python runtime dependencies.
+- Replaced frontend `any` types with shared API types and unknown-error handling.
+- Fixed IndexedDB acknowledgement before transaction commit, duplicate transcript
+  IDs within one batch, and worker replacement of minutes approved during an LLM
+  request. Added focused regression tests.
+- Validated positive configuration limits and UTF-8 BOM environment files. Replaced
+  deprecated FastAPI startup registration with a lifespan handler.
+- Loaded the Speech SDK on demand. Vite reports an initial JavaScript chunk of
+  183.16 kB plus a deferred Speech chunk of 389.57 kB, compared with a previous
+  571.87 kB initial chunk. The bundle-size warning is gone.
+- Passed Ruff lint/format, Prettier, TypeScript, 15 Python tests, 13 Node tests, and
+  production build. One upstream Starlette TestClient/httpx deprecation warning
+  remains; dependency migration was outside this cleanup.
+- Browser checks passed for workspace navigation, long transcript scrolling,
+  follow-latest behavior, desktop/mobile layouts, MoM preview interactions, and
+  actual IndexedDB save/read/remove. Synthetic silent audio verified start,
+  pause, resume, stop, and timer reset. Speech token requests were deliberately
+  mocked with HTTP 503; no cloud Speech calls or real microphone capture occurred.
+- Existing production and integration limitations below still apply. The MoM
+  document design remains a separate sample-data preview.
+
+## Previous verification — 16 October 2026
 
 ## Verified locally
 
@@ -31,10 +72,8 @@
 
 - Synthetic data only was used. Microphone/tab capture, real recording pause/resume, audio chunk timing, offline recording, and reconnection were not exercised.
 - Azure Speech authentication remains unresolved; no successful live Speech streaming test has been completed.
-- The internal form integration remains disabled. Its confirmation was checked and the API rejected submission with HTTP 503; the real destination was not contacted.
-- Browser automation stalled after cancelling the native submission dialog. Testing continued in a fresh tab; the API confirmed that no submission was queued.
 - Fully automatic audio gap recovery and all-participant Teams desktop capture are not implemented. The project remains an integration build.
 
 ## Before production release
 
-Validate a long meeting with valid Speech credentials and controlled network outages. Check transcript timestamps after reconnect and local audio reassembly/transcoding before Fast Transcription recovery. Add an approved desktop capture integration if Teams desktop audio is required. Complete SSO, managed storage, schema migrations, durable job scheduling, secret management, backup, observability, the approved internal form mapping, and a security review.
+Validate a long meeting with valid Speech credentials and controlled network outages. Check transcript timestamps after reconnect and local audio reassembly/transcoding before Fast Transcription recovery. Add an approved desktop capture integration if Teams desktop audio is required. Complete SSO, managed storage, schema migrations, durable job scheduling, secret management, backup, observability, and a security review.

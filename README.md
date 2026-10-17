@@ -1,8 +1,19 @@
 # Meeting Intelligence Platform
 
-A React/TypeScript live-meeting workspace and a FastAPI/Python backend for Azure Speech continuous streaming, incremental transcript preservation, recorded audio chunk storage, LLM MoM generation, human review, and optional internal form submission.
+A React/TypeScript live-meeting workspace and a FastAPI/Python backend for Azure Speech continuous streaming, incremental transcript preservation, recorded audio chunk storage, LLM MoM generation, human review, editing, and approval.
 
 ## Local verification
+
+Code-quality pass verified on 18 October 2026: Ruff lint/format checks, Prettier,
+strict TypeScript, **15 backend tests**, **13 frontend tests**, and the production
+build passed. Browser checks covered desktop/mobile layouts, actual IndexedDB
+save/read/remove, and synthetic recording controls. The Speech SDK now loads on
+demand: the initial JavaScript bundle decreased from about 572 kB to 183 kB
+(uncompressed). Cloud streaming and production infrastructure were not retested.
+
+For code conventions and the required frontend/backend checks, see
+[Coding standards](CONTRIBUTING.md). Development Python tools are installed with
+`pip install -r requirements-dev.txt`; runtime images install only `requirements.txt`.
 
 Verified on 16 October 2026:
 
@@ -18,18 +29,18 @@ Real credentials belong in local `.env` files. The repository includes sanitized
 UI update verified on 17 October 2026: recording controls and the live transcript share a single desktop viewport. Long transcripts scroll inside their pane; Follow latest releases when you scroll up. The stopwatch updates in tenths, freezes while paused, and keeps its stopped value. Browser checks used silent synthetic audio and mocked transcripts across five viewport sizes from 820×700 to 1920×870, plus a 390px mobile layout. The actual local backend connection check also passed. Live Azure Speech recognition was not retested in this UI pass.
 
 The proposed MoM layout is available at `http://localhost:5173/mom-preview.html`
-while the frontend development server is running. Its larger tabs, topic
-selectors, decisions, and action cards use fictional sample data. See the
+while the frontend development server is running. Its compact agenda, discussion
+pane, decisions, and action cards use fictional sample data. See the
 [MoM preview notes](docs/MOM_UI_PREVIEW.md) for what is implemented and what still
 needs backend integration.
 
 ## What is implemented
 
-- React dashboard, meeting status, microphone or supported browser tab audio selection, recording consent gate, Start/Pause/Resume/Stop, live provisional/final text, previous meetings, JSON MoM editor, approval and submission controls.
+- React dashboard, meeting status, microphone or supported browser tab audio selection, recording consent gate, Start/Pause/Resume/Stop, live provisional/final text, previous meetings, JSON MoM editor, and approval controls.
 - Official Azure Speech **JavaScript SDK continuous recognition**, using short-lived credentials brokered by the backend; recognizes text while audio is streamed. Fast Transcription is NOT the live transcription API.
 - Browser MediaRecorder saves ~5s audio chunks into IndexedDB then attempts authenticated uploads to FastAPI. The backend validates SHA-256 and stores chunks atomically. Finalized transcript events use a local pending queue until acknowledged by backend.
 - FastAPI session state machine, actor-scoped REST operations, idempotent segment ingestion, audit trail, audio chunk inventory and advisory coverage endpoint.
-- PostgreSQL (Docker Compose) or SQLite (local development), separate Python worker for LLM calls, MoM edits/approval, configurable internal form adapter disabled by default.
+- PostgreSQL (Docker Compose) or SQLite (local development), separate Python worker for LLM calls, and MoM edits/approval.
 - Long transcript section extraction and consolidation, conservative retry logic for transient worker failures.
 - Automated backend tests with no live Azure or LLM credentials.
 
@@ -43,7 +54,7 @@ This is a runnable **integration build**, NOT certified production-ready. Specif
 4. Fast STT recovery adapter exists, but **full automatic missing-audio retranscription + timestamp/speaker reconciliation is not production-implemented**. Azure Fast Transcription's API version, formats, and endpoint must be verified. MediaRecorder WebM chunks are not necessarily independently decodable Fast STT files: assemble/convert into supported audio in a vetted recovery worker before submitting.
 5. Device capability differences, STT session offset rollover, speaker diarization and simultaneous-source mixing require field testing; timestamps in live SDK can reset on reconnection, so production must maintain accurate global offsets.
 6. Enterprise Entra ID / OIDC, secure multi-tenant user identity, access policies, schema migrations, managed audio blob storage, encryption/retention automation, full audit retention, durable production job scheduler and real disaster recovery are still organization-specific integration tasks.
-7. Internal application's API field mapping must be provided; form submission is intentionally disabled by default. LLM endpoint currently expects OpenAI-compatible chat-completions JSON.
+7. The LLM endpoint currently expects OpenAI-compatible chat-completions JSON.
 8. Microphone/tab capture and a complete recording-to-summary browser session still require validation with a working Speech resource.
 
 ## Windows quickstart
@@ -93,6 +104,7 @@ Visit http://localhost:5173. During local development, Vite loads `APP_API_TOKEN
 
 ```powershell
 cd backend
+pip install -r requirements-dev.txt
 pytest -q
 ```
 
@@ -119,4 +131,3 @@ meeting-intelligence-platform/
 - Primary/secondary Speech resource keys are for credential rotation, not independent quotas.
 - Audio goes to Azure and transcripts go to the configured hosted LLM endpoint; obtain organizational permission and appropriate participant notices.
 - Development bearer-token authentication is **not production SSO**.
-- Do not enable the internal form submit flag until the approved API mapping and idempotent service credentials are in place.

@@ -1,15 +1,15 @@
 # Meeting Intelligence Platform — End-to-End Architecture & Implementation Blueprint
 
 
-Version 2.0 FINAL PROPOSED ARCHITECTURE | Implementation-ready design; integration assumptions require validation | 16 October 2026
+Version 2.1 PROPOSED ARCHITECTURE | Integration assumptions require validation | 18 October 2026
 
 
-Objective: consented meeting capture → Azure Speech-to-Text → durable transcript → evidence-grounded LLM minutes of meeting (MoM) → editable internal form → approved, auditable submission.
+Objective: consented meeting capture → Azure Speech-to-Text → durable transcript → evidence-grounded LLM minutes of meeting (MoM) → human review, editing, and approval.
 
 
 ## FINAL SOLUTION DECISION — Read first
 
-**Primary experience:** React/TypeScript web meeting console; source selection and permission check; Start/Pause/Resume/Stop; true Azure Speech SDK continuous recognition using `recognizing` (interim) and `recognized` (final) events; incremental persistent transcript; on Stop, finalize/reconcile, send to the existing hosted LLM API for schema-validated minutes, allow user review, and then submit into the internal application's authenticated API.
+**Primary experience:** React/TypeScript web meeting console; source selection and permission check; Start/Pause/Resume/Stop; true Azure Speech SDK continuous recognition using `recognizing` (interim) and `recognized` (final) events; incremental persistent transcript; on Stop, finalize/reconcile, send to the existing hosted LLM API for schema-validated minutes, allow user review and editing, and save approved minutes with an audit trail.
 
 **Existing AI infrastructure:** Azure Speech region/resource/keys plus hosted LLM endpoint/key already exist. No new LLM, SLM, Whisper installation, GPU model server, or speech model hosting is required. Azure *Fast Transcription* is **not live**; it is an optional file-based recovery adapter. Azure *Batch Transcription* is **not in the default live pipeline**.
 
@@ -29,7 +29,6 @@ Objective: consented meeting capture → Azure Speech-to-Text → durable transc
 | Azure Fast transcription | Existing REST endpoint | API version and region; file format/length; may be used only for recovery |
 | Hosted LLM | Endpoint and API key | Provider protocol, model/deployment ID, max input/output context, JSON schema behavior, privacy |
 | Capture | Not decided | Mic-only, supported browser tab/system audio, Teams Graph transcript, or approved desktop agent |
-| Internal business form | Internal app exists | Exact field dictionary, authentication, validation rules, API operations, idempotency |
 | Runtime/storage | To confirm | Existing VM, TLS domain, database, object storage, durable queue, backups, SSO and retention policy |
 
 ### Final approved runtime modes
@@ -38,12 +37,12 @@ Objective: consented meeting capture → Azure Speech-to-Text → durable transc
 2. **RECORDING_ONLY:** audio capture and local persistence healthy, STT unavailable; show honest warning; queue untranscribed intervals.
 3. **RECOVERING:** reconnect to real-time Azure for new speech; asynchronously upload historical audio to Fast transcription; de-duplicate results and keep proper timestamps.
 4. **GAP_UNRECOVERABLE:** no audio source or persistence failed; show affected timestamp ranges; flag incomplete MoM.
-5. **REVIEW_REQUIRED:** LLM structured MoM generated from known transcript only; human verifies decisions, owners and due dates; enforce form-field validation.
-6. **SUBMITTED:** persist third-party receipt, immutable audit entry and de-duplication key.
+5. **REVIEW_REQUIRED:** LLM structured MoM generated from known transcript only; human verifies decisions, owners and due dates; validate the minutes before approval.
+6. **APPROVED:** retain reviewed minutes with an immutable approval audit event.
 
 ### Recommended exact UI information architecture
 
-**Dashboard:** new meeting button, last meetings, processing/failure badges, search and permissions. **Meeting preparation modal:** capture source, mic/device test, language, title, recording notice, consent check, retention class. **Live workspace:** persistent header REC indicator; separate capture/STT/sync badges; timer; mic meter; Start/Pause/Resume/Stop; live interim and final transcript; timestamped gap alerts; retry status; optional speaker chips; keyboard-accessible controls. **Processing screen:** finalize → synchronize → repair gaps → generate MoM → validate. **MoM editor:** editable summary, participants, discussion, decisions, action items with owner/due-date confirmation, missing-data warnings, clickable transcript evidence. **Submission preview:** target app field mapping, schema errors, approval checkbox, submit once, receipt. **History:** filter, playback where approved, exports, audit events, retention/deletion status.
+**Dashboard:** new meeting button, last meetings, processing/failure badges, search and permissions. **Meeting preparation modal:** capture source, mic/device test, language, title, recording notice, consent check, retention class. **Live workspace:** persistent header REC indicator; separate capture/STT/sync badges; timer; mic meter; Start/Pause/Resume/Stop; live interim and final transcript; timestamped gap alerts; retry status; optional speaker chips; keyboard-accessible controls. **Processing screen:** finalize → synchronize → repair gaps → generate MoM → validate. **MoM editor:** editable summary, participants, discussion, decisions, action items with owner/due-date confirmation, missing-data warnings, clickable transcript evidence. **History:** filter, playback where approved, exports, audit events, retention/deletion status.
 
 ### Target nonfunctional acceptance gates (design targets, not vendor guarantees)
 
@@ -52,7 +51,7 @@ Objective: consented meeting capture → Azure Speech-to-Text → durable transc
 | 90–120 minute live meeting | Recognizer remains effective or controlled reconnect restores operation; no unnoticed missing spans |
 | 10-minute Azure/network STT outage | Locally committed audio retained and reprocessed once connectivity returns; no duplicate transcript |
 | Browser tab closed | Existing committed chunks survive; capture stops and UI explicitly records gap |
-| Second Stop or Submit request | Idempotent: one finalization job and one target business record |
+| Second Stop or Generate request | Idempotent: no duplicate active generation jobs |
 | Unknown speaker/owner | Field stays unresolved, review required |
 | Audio capture lost | REC turns off; alarm is explicit; recording completeness never misrepresented |
 | AI timeout or malformed JSON | Queue retry and reject invalid schema; never lose transcript |
@@ -80,7 +79,6 @@ Objective: consented meeting capture → Azure Speech-to-Text → durable transc
 
 | MoM | LLM structured JSON with evidence references and abstention | No guessed speaker names, owners, dates or decisions |
 
-| Form | Schema-driven mapping, user review, authenticated API submission | No irreversible submission without approved business policy |
 
 | Deployment | Managed identity + Key Vault + Postgres + Blob + Service Bus (or equivalents) | Corporate network and data residency approval needed |
 
@@ -97,7 +95,7 @@ Objective: consented meeting capture → Azure Speech-to-Text → durable transc
 
 - No assumption that a single STT session survives arbitrary network interruptions or unbounded duration.
 
-- Unknown inputs before coding: exact Speech endpoint hostname/type and region; subscription tier; frontend deployment origin; Windows vs macOS/browser; Teams desktop vs browser; whether Teams Graph admin approval is possible; internal form API contract; preferred LLM endpoint; retention and identity policy.
+- Unknown inputs before coding: exact Speech endpoint hostname/type and region; subscription tier; frontend deployment origin; Windows vs macOS/browser; Teams desktop vs browser; whether Teams Graph admin approval is possible; preferred LLM endpoint; retention and identity policy.
 
 ## 3. Research-backed external constraints
 
@@ -149,11 +147,9 @@ Official sources: https://learn.microsoft.com/en-us/azure/ai-services/speech-ser
                                                               |
                                                           [MoM schema validation]
                                                               |
-                                                 [Review UI + Editable Internal Form]
+                                                 [Review UI + Editable Minutes]
                                                               |
-                                             [Submission Adapter + Idempotency + Audit]
-                                                              |
-                                                     [Internal Application API]
+                                                  [Approval + Audit Trail]
 
 ```
 
@@ -203,7 +199,6 @@ BLOB_CONTAINER=<approved-audio-container>
 DATABASE_URL=<managed-identity-or-secret-reference>
 LLM_BASE_URL=<approved-llm-endpoint>
 LLM_MODEL=<approved-model-id>
-INTERNAL_FORM_API_BASE_URL=<approved-internal-app-api>
 
 
 ```
@@ -231,13 +226,11 @@ Style: light canvas, navy text, restrained teal for completed processing, red re
 
 | Reconnect overlay | Audio local, STT network status, buffered seconds, attempt count, gap risk | Retry / switch source / stop safely |
 
-| Processing screen | Steps: finalize, transcript QA, extract, merge, form map; progress with honest stages | Open transcript / retry eligible stage |
+| Processing screen | Steps: finalize, transcript QA, extract, merge, validate; progress with honest stages | Open transcript / retry eligible stage |
 
 | MoM review | Summary, decisions, action owner/date, confidence flags, clickable timestamps for evidence | Edit / confirm / regenerate section |
 
-| Form preview | Exact field mapping, required-field errors, diff from MoM, schema version | Validate / authorize submission |
 
-| Submission receipt | Receipt ID, submitted-by, timestamp, target record link, immutable audit event | View record / export |
 
 
 
@@ -249,7 +242,7 @@ Style: light canvas, navy text, restrained teal for completed processing, red re
 IDLE -> PREPARING -> AWAITING_PERMISSION -> CONNECTING_STT -> RECORDING
 RECORDING <-> PAUSED
 RECORDING|PAUSED -> STOPPING -> FINALIZING -> PROCESSING_MOM -> REVIEW_REQUIRED
-REVIEW_REQUIRED -> SUBMITTING -> SUBMITTED
+REVIEW_REQUIRED -> APPROVED
 Any active state -> DEGRADED or ERROR_RECOVERABLE; terminal: FAILED, CANCELLED
 STOPPING is idempotent: second click returns same active finalization job.
 A valid RED REC indicator requires verified active audio capture and durable write health; live STT may independently be connected, reconnecting, or offline. Display STT and recording statuses separately.
@@ -310,7 +303,6 @@ Persist state transitions server-side with version numbers (optimistic concurren
 
 | MomVersion | id, meeting_id, schema_version, structured_json, rendered_text, reviewer_id, review_status, evidence_map |
 
-| FormSubmission | id, meeting_id, mom_version_id, target_system, idempotency_key, payload_hash, target_record_id, receipt, status |
 
 | AuditEvent | id, tenant_id, meeting_id, actor, action, request_id, timestamp, redacted_metadata |
 
@@ -348,28 +340,10 @@ Uniqueness: (meeting_id, provider_result_id) or a deterministic segment hash plu
 
 
 
-Never use the transcript as instructions to change model system prompt, authorize form submission or exfiltrate data. Transcript content is untrusted task data. Enforce tool allowlists and strict JSON output handling.
+Never use the transcript as instructions to change model system prompt, approve minutes or exfiltrate data. Transcript content is untrusted task data. Enforce tool allowlists and strict JSON output handling.
 
 
-## 13. Internal form integration and submission contract
-
-
-1. Discover/define target form schema (field names, types, enums, required fields, length limits, allowed values, dependencies, maximum payload size and auth scopes).
-
-1. Create mapping contract: MoM field → target field, transformation, provenance, default policy, validation rule, human-editability and rejection reason.
-
-1. Show preview and side-by-side source evidence; block submission when owner/deadline/required fields are unknown or when important transcript gaps exist.
-
-1. Use service-to-service authentication with least privilege; submit with idempotency key derived from tenant, meeting and approved MoM revision.
-
-1. On timeout: query target by idempotency key or external correlation ID before retry; never create duplicate form records simply because the response was lost.
-
-1. Persist target record ID and immutable submission receipt; provide repair flow for rejected submissions and explicit human-initiated resubmission.
-
-Prefer documented internal application APIs. UI automation is a fallback requiring a separate approval, secrets handling, stable selectors, monitoring and human checks.
-
-
-## 14. API contract proposal
+## 13. API contract proposal
 
 
 | Method / path | Purpose / behavior |
@@ -398,9 +372,7 @@ Prefer documented internal application APIs. UI automation is a fallback requiri
 
 | POST /v1/meetings/{id}/mom/regenerate | Reprocess transcript or selected section with guarded revision |
 
-| POST /v1/meetings/{id}/form/validate | Dry-run field validation and external target checks |
 
-| POST /v1/meetings/{id}/form/submit | Idempotent approved submission and audit receipt |
 
 | GET /v1/meetings/{id}/jobs/{job_id} | Processing stage, progress, retryable failure information |
 
@@ -411,7 +383,7 @@ Prefer documented internal application APIs. UI automation is a fallback requiri
 API standard: X-Request-ID tracing, authz on every meeting resource, pagination, timestamps UTC ISO8601, structured error envelope, request size limits, optimistic concurrency, OpenAPI schema, and explicit provider error mapping.
 
 
-## 15. Error taxonomy and exact user-facing messages
+## 14. Error taxonomy and exact user-facing messages
 
 
 | Code / scenario | User-facing message | Recovery action |
@@ -444,13 +416,10 @@ API standard: X-Request-ID tracing, authz on every meeting resource, pagination,
 
 | LLM_INVALID_JSON | The AI response could not be validated. We are retrying safely. | Limited retry and schema validation |
 
-| MOM_UNVERIFIED_OWNER | An action item has no confirmed owner. Please select one before submitting. | Focus relevant form field |
+| MOM_UNVERIFIED_OWNER | An action item has no confirmed owner. Review it before approving. | Focus the action item |
 
-| FORM_VALIDATION_FAILED | Some required form fields need correction. | Inline field errors |
 
-| SUBMISSION_TIMEOUT_UNKNOWN | We could not confirm submission. Checking whether a record was already created. | Lookup before retry |
 
-| SUBMISSION_REJECTED | The internal application rejected the form. Review the highlighted fields. | Show sanitized errors and retry after edits |
 
 | SESSION_RECOVERY | This meeting ended unexpectedly. A partial transcript was saved. | Resume review or recover audio |
 
@@ -459,7 +428,7 @@ API standard: X-Request-ID tracing, authz on every meeting resource, pagination,
 Error object: {code, message, recoverable, action_label, request_id, retry_after_seconds?, details?}. Never show Azure keys, stack traces, raw PII or internal URLs to ordinary users. Use accessible live regions and never auto-dismiss critical errors.
 
 
-## 16. Retry policy, transactions and failure recovery
+## 15. Retry policy, transactions and failure recovery
 
 
 | Failure class | Retry approach | Safety note |
@@ -474,18 +443,17 @@ Error object: {code, message, recoverable, action_label, request_id, retry_after
 
 | LLM timeout | Background bounded retries against immutable transcript revision | Avoid multiple contradictory MoM versions |
 
-| Malformed model JSON | One schema-guided repair/retry then review-required error | Do not auto-submit unvalidated content |
+| Malformed model JSON | One schema-guided repair/retry then review-required error | Do not save unvalidated content |
 
-| Internal app ambiguous timeout | Check target record/correlation ID before retry | Exactly-once outcome via idempotent adapter |
 
 | Worker crash | Durable queue redelivery; outbox pattern and dedupe | Jobs must resume from checkpoints |
 
 
 
-## 17. Security, privacy and enterprise controls
+## 16. Security, privacy and enterprise controls
 
 
-- Entra ID SSO and tenant-scoped RBAC: recorder, reviewer, submitter, administrator; separation of duties for sensitive workflows.
+- Entra ID SSO and tenant-scoped RBAC: recorder, reviewer, administrator; separation of duties for sensitive workflows.
 
 - Explicit participant notice/consent and organizational/legal policy checks; visible recording indicator; auditable consent artifact and revocation path.
 
@@ -495,13 +463,13 @@ Error object: {code, message, recoverable, action_label, request_id, retry_after
 
 - Configurable retention for raw audio, transcripts, MoM versions and audit. Delete requests cascade under approved retention/legal-hold rules.
 
-- LLM prompt injection resistance: meeting transcript is untrusted text; cannot execute tools, change policies or trigger submission.
+- LLM prompt injection resistance: meeting transcript is untrusted text; cannot execute tools, change policies or approve minutes.
 
 - Restrict logging to status/timing/error codes, redact credentials and PII, protect exported transcript links with expiring authorization.
 
 - Never allow background tab processing or audio capture beyond clearly consented meeting scope; make Stop immediate and reliable.
 
-## 18. Observability, SLOs and dashboards
+## 17. Observability, SLOs and dashboards
 
 
 | Area | Metrics/alerts |
@@ -516,16 +484,15 @@ Error object: {code, message, recoverable, action_label, request_id, retry_after
 
 | LLM | Prompt/output tokens, latency, retry count, valid JSON %, evidence coverage %, reviewer edit rate |
 
-| Form | Validation errors by field, submit success %, duplicate prevention count, mean time to receipt |
 
 | Security | Unauthorized access, abnormal exports, secret rotation failures, retention/deletion compliance |
 
 
 
-Initial proposed targets (to confirm with stakeholder): ≥99% successful start after approved permissions; ≥99% persistence of finalized segments; zero silent transcript gaps; 100% human review for unresolved owners/dates; zero duplicate form records. Measure end-to-end MoM completion time rather than promising instant results for multi-hour sessions.
+Initial proposed targets (to confirm with stakeholder): ≥99% successful start after approved permissions; ≥99% persistence of finalized segments; zero silent transcript gaps; 100% human review for unresolved owners/dates. Measure end-to-end MoM completion time rather than promising instant results for multi-hour sessions.
 
 
-## 19. Testing matrix / acceptance criteria
+## 18. Testing matrix / acceptance criteria
 
 
 | Test | Expected behavior |
@@ -548,11 +515,10 @@ Initial proposed targets (to confirm with stakeholder): ≥99% successful start 
 
 | Long multilingual meeting / noise | Quality warning; language configuration; reviewer corrections |
 
-| Malicious transcript instructions | LLM treats text as data; submission permissions unchanged |
+| Malicious transcript instructions | LLM treats text as data; approval permissions unchanged |
 
 | LLM truncated JSON | Bounded retry then safe failure |
 
-| Internal API timeout and double-click | Single target record or unknown-to-review state; never blind duplicate |
 
 | RBAC + tenant isolation | Cannot read/write another user’s meeting |
 
@@ -562,7 +528,7 @@ Initial proposed targets (to confirm with stakeholder): ≥99% successful start 
 
 
 
-## 20. Deployable repository structure
+## 19. Deployable repository structure
 
 
 ```
@@ -572,17 +538,15 @@ meeting-intelligence/
     src/app/ (routes, session, protected shell)
     src/features/meeting/ (controls, source-picker, status, transcript)
     src/features/mom/ (reviewer, evidence, editor)
-    src/features/forms/ (mapping-preview, submission)
     src/shared/ (design-system, auth, api-client, error-catalog)
   backend/
-    app/api/v1/ (meetings, sessions, speech_token, transcript, mom, submit)
+    app/api/v1/ (meetings, sessions, speech_token, transcript, mom)
     app/domain/ (state-machine, entities, schemas, policies)
     app/adapters/audio/ (browser_stream, file_upload, teams_graph)
     app/adapters/stt/ (azure_speech, result_normalizer)
     app/adapters/llm/ (provider_interface, structured_mom)
-    app/adapters/forms/ (internal_api, validation)
     app/infrastructure/ (postgres, blob, queue, keyvault, tracing)
-    app/workers/ (finalize, recover, mom, submission)
+    app/workers/ (finalize, recover, mom)
   infra/ (terraform-or-bicep, pipelines, env templates)
   docs/ (architecture, adr, API contract, privacy, runbooks, UI spec)
   tests/ (unit, contract, integration, browser-e2e, performance, chaos)
@@ -592,7 +556,7 @@ meeting-intelligence/
 
 
 
-## 21. Delivery plan, priorities and dependencies
+## 20. Delivery plan, priorities and dependencies
 
 
 | Phase | Scope | Done when |
@@ -607,13 +571,12 @@ meeting-intelligence/
 
 | 3 — MoM | Versioned grounded extraction, structured JSON, review editor, evidence navigation and export | Decisions/actions linked to transcript segments and accepted by reviewer |
 
-| 4 — Form integration | Target schema mapping, validation, approved submit, idempotency and audit | Successful end-to-end form record created exactly once |
 
-| 5 — Enterprise expansion | Teams Graph path, concurrency scaling, stronger retention, security tests, SLOs | Admin-approved deployment and production operations |
-
+| 4 — Enterprise expansion | Teams Graph path, concurrency scaling, stronger retention, security tests, SLOs | Admin-approved deployment and production operations |
 
 
-## 22. Integration checklist before development
+
+## 21. Integration checklist before development
 
 
 - Speech endpoint URL/hostname (redact any credential-bearing query string)
@@ -634,19 +597,18 @@ meeting-intelligence/
 
 - Approved LLM deployment (Azure OpenAI, other API/local) + context/output limits
 
-- Internal application form schema, API access, auth and submission policy
 
 - Transcript/audio retention and data residency requirements
 
 - Target number of simultaneous meetings, expected max duration and budget
 
-## 23. Architecture acceptance and next coding step
+## 22. Architecture acceptance and next coding step
 
 
-Approve capture-source strategy and field-schema contract before implementation. Start with a narrow proof of concept: microphone permission → Azure continuous STT with short-lived token → finalized transcript persistence → stop → structured MoM mock → editable form. Then add platform audio source and production hardening. The design intentionally does not invent your real endpoint URLs, secrets, LLM IDs or internal form fields.
+Approve capture-source strategy and the MoM schema before implementation. Start with a narrow proof of concept: microphone permission → Azure continuous STT with short-lived token → finalized transcript persistence → stop → structured MoM mock → editable, approved minutes. Then add platform audio source and production hardening. The design intentionally does not invent your real endpoint URLs, secrets, LLM IDs.
 
 
-## 24. Official reference links
+## 23. Official reference links
 
 
 https://learn.microsoft.com/en-us/azure/ai-services/speech-service/speech-services-quotas-and-limits
@@ -670,7 +632,7 @@ https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getDisplayMedia
 https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia
 
 
-## 25. Updated official research notes — October 2026
+## 24. Updated official research notes — October 2026
 
 - **Azure Speech JavaScript recognizer:** official SDK recognizes continuously until stopped; interim events (`recognizing`) and final events (`recognized`) are first-class API features. https://learn.microsoft.com/javascript/api/microsoft-cognitiveservices-speech-sdk/speechrecognizer
 - **Credentials:** authorization tokens must be refreshed on the existing recognizer before expiry, not merely updated on `SpeechConfig`. https://learn.microsoft.com/javascript/api/microsoft-cognitiveservices-speech-sdk/speechconfig
@@ -678,4 +640,4 @@ https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia
 - **Private endpoints:** network/DNS custom endpoint changes affect SDK URI configuration. https://learn.microsoft.com/en-us/azure/ai-services/speech-service/speech-services-private-link
 - **Teams raw media:** Microsoft advises meeting-intelligence builders to prefer Graph meeting transcripts or Copilot Studio over specialized real-time media bots. Media bots require dedicated C#/.NET and Windows Server in Azure for production. https://learn.microsoft.com/en-us/microsoftteams/platform/bots/calls-and-meetings/real-time-media-concepts
 
-**Document status:** architecture specified, not yet deployed or validated against the user's actual resource, tenant, audio source, LLM API and form schema.
+**Document status:** architecture specified, not yet deployed or validated against the user's actual resource, tenant, audio source, or LLM API.

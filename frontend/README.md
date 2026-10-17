@@ -8,7 +8,10 @@ During local development, Vite reads `APP_API_TOKEN` from `backend/.env` and att
 
 The credential proxy is absent from production builds and `vite preview`. The existing manual-token connection remains available in those builds; production deployments should use SSO. Browser security requires HTTPS or localhost for microphone capture.
 
-Run `npm test` for the local proxy and stopwatch checks and `npm run build` for TypeScript and production compilation.
+Run `npm run check` for formatting, strict TypeScript, and the proxy, offline
+persistence, and stopwatch tests. Run `npm run build` for production compilation.
+`npm run format` applies the shared formatting rules. See
+[Coding standards](../CONTRIBUTING.md) for the complete workflow.
 
 The live workspace keeps recording controls beside the transcript on desktop.
 The independent stopwatch updates in tenths and freezes while paused.
