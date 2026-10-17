@@ -8,12 +8,20 @@ Verified on 16 October 2026:
 
 - Backend test suite: 5 tests passed; test fixtures disable Azure Speech credentials to avoid live cloud calls.
 - Frontend production build: `npm run build` passed.
-- Local development proxy: `npm test` passed all 6 checks for automatic authentication, localhost/origin restrictions, and production isolation.
+- Frontend tests: `npm test` passes 9 checks covering the local authentication proxy and the independent recording stopwatch.
 - Azure OpenAI: the `gpt-6.1-sol` deployment generated meeting minutes from a synthetic transcript, validated against the application's schema.
 - Browser checks passed for authentication, history, transcripts, summary generation, draft validation, editing, approval, and new-meeting reset using synthetic data.
 - Desktop, mobile (390 px), and tablet (768 px) layouts were checked. Live audio capture was excluded from this synthetic test run.
 
 Real credentials belong in local `.env` files. The repository includes sanitized `.env.example` templates; recordings, databases, and secrets are excluded.
+
+UI update verified on 17 October 2026: recording controls and the live transcript share a single desktop viewport. Long transcripts scroll inside their pane; Follow latest releases when you scroll up. The stopwatch updates in tenths, freezes while paused, and keeps its stopped value. Browser checks used silent synthetic audio and mocked transcripts across five viewport sizes from 820�700 to 1920�870, plus a 390px mobile layout. The actual local backend connection check also passed. Live Azure Speech recognition was not retested in this UI pass.
+
+The proposed MoM layout is available at `http://localhost:5173/mom-preview.html`
+while the frontend development server is running. Its larger tabs, topic
+selectors, decisions, and action cards use fictional sample data. See the
+[MoM preview notes](docs/MOM_UI_PREVIEW.md) for what is implemented and what still
+needs backend integration.
 
 ## What is implemented
 

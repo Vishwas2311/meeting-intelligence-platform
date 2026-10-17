@@ -8,6 +8,15 @@ During local development, Vite reads `APP_API_TOKEN` from `backend/.env` and att
 
 The credential proxy is absent from production builds and `vite preview`. The existing manual-token connection remains available in those builds; production deployments should use SSO. Browser security requires HTTPS or localhost for microphone capture.
 
-Run `npm test` for the local proxy access checks and `npm run build` for TypeScript and production compilation.
+Run `npm test` for the local proxy and stopwatch checks and `npm run build` for TypeScript and production compilation.
+
+The live workspace keeps recording controls beside the transcript on desktop.
+The independent stopwatch updates in tenths and freezes while paused.
+
+Open `http://localhost:5173/mom-preview.html` while the development server is
+running to review the proposed minutes layout with fictional sample data.
+This is a standalone prototype; its edits and approvals are local simulations.
+See [the preview notes](../docs/MOM_UI_PREVIEW.md) for verification and integration
+status.
 
 Limitations: microphone is not Teams system audio; tab audio requires browser support; browser shutdown stops capture; unsynced chunks can persist locally but storage quota may be exceeded; support for per-chunk audio transcription is not automatic. Browser service-worker cannot continue microphone capture after browser/tab closes.

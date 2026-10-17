@@ -26,3 +26,9 @@ __pycache__/
 *.zip
 .DS_Store
 Thumbs.db
+
+# Local design scratch and browser verification artifacts.
+.superdesign/
+output/playwright/
+
+.playwright-cli/
