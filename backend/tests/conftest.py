@@ -13,6 +13,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setenv("LLM_ENDPOINT", "")
     monkeypatch.setenv("LLM_API_KEY", "")
     monkeypatch.setenv("LLM_MODEL", "")
+    monkeypatch.setenv("LLM_REQUEST_INTERVAL_SECONDS", "0")
     from app.config import get_settings
 
     get_settings.cache_clear()

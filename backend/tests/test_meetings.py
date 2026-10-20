@@ -183,8 +183,7 @@ def test_generate_edit_and_approve_minutes(client, auth, monkeypatch):
         return {"title": title, "summary": "A focused pilot was agreed.", "transcript_gaps": gaps}
 
     monkeypatch.setattr(worker, "llm_mom", generate)
-    _, kind, meeting_id = worker.acquire_job()
-    asyncio.run(worker.execute(kind, meeting_id))
+    asyncio.run(worker.run_job(*worker.acquire_job()))
     assert client.get(f"/api/meetings/{mid}", headers=auth).json()["status"] == "ready_review"
     draft = client.get(f"/api/meetings/{mid}/mom", headers=auth).json()
     assert draft["status"] == "draft"

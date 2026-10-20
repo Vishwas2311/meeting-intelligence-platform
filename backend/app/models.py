@@ -79,6 +79,10 @@ class Job(Base):
     status: Mapped[str] = mapped_column(String(50), default="pending")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text)
+    run_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    claim_token: Mapped[str | None] = mapped_column(String(36))
+    checkpoint: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
@@ -90,3 +94,26 @@ class AuditEvent(Base):
     action: Mapped[str] = mapped_column(String(100))
     detail: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class CaptureManifest(Base):
+    __tablename__ = "capture_manifests"
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON)
+
+
+class MomRevision(Base):
+    __tablename__ = "mom_revisions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), index=True)
+    data: Mapped[dict] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(50))
+    actor: Mapped[str] = mapped_column(String(150))
+    provenance: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class WorkerState(Base):
+    __tablename__ = "worker_state"
+    id: Mapped[str] = mapped_column(String(20), primary_key=True)
+    seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

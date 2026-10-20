@@ -21,6 +21,8 @@ __pycache__/
 *.sqlite
 *.sqlite3
 *.sqlite3-*
+*.db*.bak
+*.sqlite*.bak
 *.log
 
 # Local archives and OS metadata.
@@ -30,6 +32,6 @@ Thumbs.db
 
 # Local design scratch and browser verification artifacts.
 .superdesign/
-output/playwright/
+/output/
 
 .playwright-cli/
