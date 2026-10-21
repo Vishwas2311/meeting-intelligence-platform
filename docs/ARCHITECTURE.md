@@ -18,11 +18,18 @@ flowchart LR
 
 ## Recording and synchronization
 
-MediaRecorder captures WebM audio while Azure Speech produces live segments. The local recorder and monotonic stopwatch pause immediately, before waiting for cloud callbacks. Asynchronous capture responses are checked against the selected meeting, request generation and server revision.
+MediaRecorder captures WebM audio while Azure Speech produces live segments. Online meetings default to a mono Web Audio mix of microphone and shared tab/system audio; both recording and Speech receive that same stream. In-person microphone-only and shared-audio-only modes remain available. Sharing video stays active for the source's lifetime but is never recorded or uploaded. Missing shared audio blocks online capture; losing either input stops capture and records an interruption. The local recorder and monotonic stopwatch pause immediately, before waiting for cloud callbacks. Asynchronous capture responses are checked against the selected meeting, request generation and server revision.
 
 IndexedDB commits audio, transcript segments, interruption events and stop requests before acknowledging local persistence. Synchronization sends interruption events first, then audio and text, then the recording manifest, then Stop. Failed acknowledgements retain the original data. Never clear browser storage while recovery data is pending. Closing a recording tab marks the restored session incomplete; an unsaved final chunk cannot be reconstructed by pretending the session finished normally.
 
 The manifest records the expected chunk count, final timeline and intentional pause intervals. Coverage checks detect missing sequences, missing tails and unexpected gaps. Silence is not classified as missing speech. Legacy recordings without a manifest remain available but cannot claim verified audio completeness.
+
+Live Speech uses `ConversationTranscriber`. Each segment retains its service speaker ID,
+scoped to a unique transcription session so reconnects cannot inherit the wrong person's
+name. The `speaker_names` table stores manual names separately from immutable transcript
+events. Transcript responses and browser snapshots include that mapping; renames are
+authorized against the meeting owner, require an existing speaker, and are audited.
+Names apply to transcript display and evidence, without rewriting approved minutes.
 
 ## Recovery and minutes
 
@@ -58,6 +65,7 @@ Tests include isolated backend/provider/recovery/backup cases, frontend persiste
 - `backend/app/providers.py`: Speech/LLM transports and response validation.
 - `backend/app/storage.py`: backup, restore, storage status and opt-in audio retention.
 - `frontend/src/main.tsx`: application flow and capture orchestration.
+- `frontend/src/audioCapture.ts`: microphone/shared-audio acquisition, mixing and source cleanup.
 - `frontend/src/offline.ts`: durable outboxes and ten-snapshot cache.
 - `frontend/src/MinutesReview.tsx`: editable document and revision review.
 - `frontend/src/StorageSettings.tsx`: storage status and verified backup download.

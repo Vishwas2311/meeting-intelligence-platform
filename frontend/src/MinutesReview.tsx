@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import type { Minutes, Segment } from './types';
 import { request, errorMessage } from './api';
+import { TranscriptEntry } from './TranscriptEntry';
+import { formatElapsed } from './stopwatch';
 
 type Data = Minutes['data'];
 type PointsKey = 'discussion_points' | 'risks' | 'unanswered_questions';
@@ -22,6 +24,7 @@ const sections = [
   { key: 'action_items', title: 'Action items', icon: ListChecks },
   { key: 'risks', title: 'Risks & plans', icon: Flag },
   { key: 'unanswered_questions', title: 'Open questions', icon: CircleHelp },
+  { key: 'transcript', title: 'Transcript', icon: FileText },
 ] as const;
 type SectionKey = (typeof sections)[number]['key'];
 
@@ -55,6 +58,8 @@ export function MinutesReview({
   onChange,
   readOnly,
   segments,
+  speakerLabels = {},
+  onRenameSpeaker,
   meetingId,
   onViewingVersionChange,
   status,
@@ -64,6 +69,8 @@ export function MinutesReview({
   onChange: (value: string) => void;
   readOnly: boolean;
   segments: Segment[];
+  speakerLabels?: Record<string, string>;
+  onRenameSpeaker?: (speakerId: string) => void;
   meetingId: string;
   onViewingVersionChange: (viewing: boolean) => void;
   status: string;
@@ -92,6 +99,7 @@ export function MinutesReview({
   const update = (changes: Partial<Data>) =>
     onChange(JSON.stringify({ ...data, ...changes }, null, 2));
   const shown = version ?? data;
+  const evidenceSegment = segments.find((s) => s.id === evidence);
   function evidenceLinks(ids: unknown) {
     return Array.isArray(ids) && ids.length ? (
       <div className="evidence-links">
@@ -197,7 +205,10 @@ export function MinutesReview({
                     >
                       {segments.map((s) => (
                         <option key={s.id} value={s.id}>
-                          {s.text.slice(0, 120)}
+                          {(s.speaker_id && speakerLabels[s.speaker_id]) ||
+                            s.speaker_id?.trim() ||
+                            'Unidentified speaker'}{' '}
+                          · {formatElapsed(s.start_ms)} — {s.text.slice(0, 120)}
                         </option>
                       ))}
                     </select>
@@ -287,13 +298,16 @@ export function MinutesReview({
     );
   }
   function jump(key: SectionKey) {
-    const node = sectionRefs.current[key];
-    if (!node || !scrollRef.current) return;
-    scrollRef.current.scrollTo({
-      top: key === 'summary' ? 0 : node.offsetTop - 20,
-      behavior: 'instant',
-    });
     setSection(key);
+    // The transcript has its own reading view; wait for that view to mount before scrolling.
+    requestAnimationFrame(() => {
+      const node = sectionRefs.current[key];
+      if (!node || !scrollRef.current) return;
+      scrollRef.current.scrollTo({
+        top: key === 'summary' || key === 'transcript' ? 0 : node.offsetTop - 20,
+        behavior: 'instant',
+      });
+    });
   }
   return (
     <div className="minutes-document">
@@ -354,7 +368,9 @@ export function MinutesReview({
             >
               <Icon size={16} />
               <span>{title}</span>
-              {key !== 'summary' && <small>{shown[key]?.length || 0}</small>}
+              {key !== 'summary' && (
+                <small>{key === 'transcript' ? segments.length : shown[key]?.length || 0}</small>
+              )}
             </button>
           ))}
         </nav>
@@ -362,101 +378,135 @@ export function MinutesReview({
           className="minutes-scroll"
           ref={scrollRef}
           onScroll={() => {
+            if (section === 'transcript') return;
             const top = (scrollRef.current?.scrollTop || 0) + 60;
             const current = [...sections]
               .reverse()
-              .find(({ key }) => (sectionRefs.current[key]?.offsetTop ?? Infinity) <= top);
+              .find(
+                ({ key }) =>
+                  key !== 'transcript' && (sectionRefs.current[key]?.offsetTop ?? Infinity) <= top,
+              );
             if (current) setSection(current.key);
           }}
         >
           <div className="minutes-paper">
-            <header className="document-title">
-              <GrowingTextarea
-                id="mom-title"
-                aria-label="Minutes title"
-                readOnly={locked}
-                value={shown.title}
-                onChange={(e) => update({ title: e.target.value })}
-              />
-            </header>
-            <section
-              className="minute-card summary-card"
-              ref={(node) => {
-                if (node) sectionRefs.current.summary = node;
-              }}
-            >
-              <h3>
-                <FileText size={18} />
-                Meeting summary
-              </h3>
-              <GrowingTextarea
-                id="mom-editor"
-                aria-label="Meeting summary"
-                readOnly={readOnly || !!version}
-                value={shown.summary}
-                onChange={(e) => update({ summary: e.target.value })}
-              />
-            </section>
-            <section
-              className="minute-card discussion-card"
-              ref={(node) => {
-                if (node) sectionRefs.current.discussion_points = node;
-              }}
-            >
-              <h3>
-                <MessagesSquare size={18} />
-                Discussion <span>{shown.discussion_points?.length || 0}</span>
-              </h3>
-              {points('discussion_points', 'Discussion point')}
-            </section>
-            <section
-              className="minute-card decisions-card"
-              ref={(node) => {
-                if (node) sectionRefs.current.decisions = node;
-              }}
-            >
-              <h3>
-                <CheckCircle2 size={18} />
-                Decisions made <span>{shown.decisions?.length || 0}</span>
-              </h3>
-              {items('decisions')}
-            </section>
-            <section
-              className="minute-card actions-card"
-              ref={(node) => {
-                if (node) sectionRefs.current.action_items = node;
-              }}
-            >
-              <h3>
-                <ListChecks size={18} />
-                Action items <span>{shown.action_items?.length || 0}</span>
-              </h3>
-              {items('action_items')}
-            </section>
-            <section
-              className="minute-card"
-              ref={(node) => {
-                if (node) sectionRefs.current.risks = node;
-              }}
-            >
-              <h3>
-                <Flag size={18} />
-                Risks & plans <span>{shown.risks?.length || 0}</span>
-              </h3>
-              {points('risks', 'Risk or plan')}
-            </section>
-            <section
-              className="minute-card"
-              ref={(node) => {
-                if (node) sectionRefs.current.unanswered_questions = node;
-              }}
-            >
-              <h3>
-                <CircleHelp size={18} />
-                Open questions <span>{shown.unanswered_questions?.length || 0}</span>
-              </h3>
-              {points('unanswered_questions', 'Open question')}
-            </section>
+            {section === 'transcript' ? (
+              <section
+                className="minute-card transcript-card"
+                ref={(node) => {
+                  if (node) sectionRefs.current.transcript = node;
+                }}
+              >
+                <h3>
+                  <FileText size={18} />
+                  Transcript <span>{segments.length}</span>
+                </h3>
+                {segments.length ? (
+                  segments.map((segment) => (
+                    <TranscriptEntry
+                      key={segment.id || segment.client_event_id}
+                      segment={segment}
+                      speakerLabel={
+                        segment.speaker_id ? speakerLabels[segment.speaker_id] : undefined
+                      }
+                      onRename={version ? undefined : onRenameSpeaker}
+                    />
+                  ))
+                ) : (
+                  <p className="minute-empty">No transcript is saved for this meeting.</p>
+                )}
+              </section>
+            ) : (
+              <>
+                <header className="document-title">
+                  <GrowingTextarea
+                    id="mom-title"
+                    aria-label="Minutes title"
+                    readOnly={locked}
+                    value={shown.title}
+                    onChange={(e) => update({ title: e.target.value })}
+                  />
+                </header>
+                <section
+                  className="minute-card summary-card"
+                  ref={(node) => {
+                    if (node) sectionRefs.current.summary = node;
+                  }}
+                >
+                  <h3>
+                    <FileText size={18} />
+                    Meeting summary
+                  </h3>
+                  <GrowingTextarea
+                    id="mom-editor"
+                    aria-label="Meeting summary"
+                    readOnly={readOnly || !!version}
+                    value={shown.summary}
+                    onChange={(e) => update({ summary: e.target.value })}
+                  />
+                </section>
+                <section
+                  className="minute-card discussion-card"
+                  ref={(node) => {
+                    if (node) sectionRefs.current.discussion_points = node;
+                  }}
+                >
+                  <h3>
+                    <MessagesSquare size={18} />
+                    Discussion <span>{shown.discussion_points?.length || 0}</span>
+                  </h3>
+                  {points('discussion_points', 'Discussion point')}
+                </section>
+                <section
+                  className="minute-card decisions-card"
+                  ref={(node) => {
+                    if (node) sectionRefs.current.decisions = node;
+                  }}
+                >
+                  <h3>
+                    <CheckCircle2 size={18} />
+                    Decisions made <span>{shown.decisions?.length || 0}</span>
+                  </h3>
+                  {items('decisions')}
+                </section>
+                <section
+                  className="minute-card actions-card"
+                  ref={(node) => {
+                    if (node) sectionRefs.current.action_items = node;
+                  }}
+                >
+                  <h3>
+                    <ListChecks size={18} />
+                    Action items <span>{shown.action_items?.length || 0}</span>
+                  </h3>
+                  {items('action_items')}
+                </section>
+                <section
+                  className="minute-card"
+                  ref={(node) => {
+                    if (node) sectionRefs.current.risks = node;
+                  }}
+                >
+                  <h3>
+                    <Flag size={18} />
+                    Risks & plans <span>{shown.risks?.length || 0}</span>
+                  </h3>
+                  {points('risks', 'Risk or plan')}
+                </section>
+                <section
+                  className="minute-card questions-card"
+                  ref={(node) => {
+                    if (node) sectionRefs.current.unanswered_questions = node;
+                  }}
+                >
+                  <h3>
+                    <CircleHelp size={18} />
+                    Open questions <span>{shown.unanswered_questions?.length || 0}</span>
+                  </h3>
+                  {points('unanswered_questions', 'Open question')}
+                </section>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -476,10 +526,19 @@ export function MinutesReview({
         >
           <section className="minute-card">
             <h3>Supporting transcript</h3>
-            <p>
-              {segments.find((s) => s.id === evidence)?.text ||
-                'No matching segment is available for this legacy reference. Review the original transcript.'}
-            </p>
+            {evidenceSegment ? (
+              <TranscriptEntry
+                segment={evidenceSegment}
+                speakerLabel={
+                  evidenceSegment.speaker_id ? speakerLabels[evidenceSegment.speaker_id] : undefined
+                }
+              />
+            ) : (
+              <p>
+                No matching segment is available for this legacy reference. Review the original
+                transcript.
+              </p>
+            )}
             <button autoFocus className="secondary small" onClick={() => setEvidence(null)}>
               Close transcript
             </button>

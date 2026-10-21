@@ -53,6 +53,40 @@ This creates a verified full backup, restores to a new local-app-data runtime fo
 5. Start with the supervisor. Existing schema upgrades add tables/job columns without resetting history. Refresh the browser after the source update. Browser outboxes upgrade in place.
 6. Test a synthetic meeting: Start, verify live transcription, Pause/Resume, Stop, Generate MoM, edit, save, approve and reload. Open History and confirm previous records are still present.
 
+## Capturing both sides of Teams and Zoom meetings
+
+Choose **Online meeting: microphone + meeting audio** (the default). When Start Meeting
+opens the browser sharing picker:
+
+- For Teams/Zoom in a browser, select the meeting's tab and enable **Share tab audio**.
+- For Teams/Zoom desktop on Windows, select **Entire screen** and enable **Also share system audio**.
+  If this option is unavailable, join the meeting in an Edge/Chrome tab and share that tab's audio.
+- Allow microphone access for your own voice. Headphones help avoid echo. System audio
+  includes other sounds played by the computer, so avoid unrelated playback during recording.
+
+Both sources are mixed into the same audio stream for local recording and live transcription.
+Screen video is never recorded or uploaded. Keep sharing active until Stop Meeting; ending
+either input marks the session incomplete. The app refuses to start an online recording
+without shared audio, rather than silently recording only the microphone.
+
+Use **In-person: microphone only** for conversations in the room. **Shared audio only**
+captures remote playback without your microphone. Audio sharing depends on the browser and
+the source selected in its picker; selecting a window does not guarantee audio capture.
+
+## Speaker labels and names
+
+New recordings use Azure conversation transcription to distinguish voices as Speaker 1,
+Speaker 2, and so on. Click the pencil beside a speaker, enter their name, and choose
+**Save name**. The name applies to all that speaker's turns in this meeting, including
+later turns in the same transcription session, saved transcripts, and offline copies.
+Renaming needs a backend connection and a synchronized transcript.
+
+These labels distinguish voices; they do not identify real people automatically. Early
+or unclear speech can remain unidentified. After a pause/resume or a transcription
+reconnect, Azure starts a new session and may assign different guest IDs. New session
+labels stay separate; rename them again if you recognize the person. Existing transcripts
+without speaker IDs remain unidentified. Overlapping voices and echo can reduce accuracy.
+
 ## Recovery and provider failures
 
 A Speech outage preserves local audio but marks the transcript incomplete. Stop and synchronize first, then choose Recover transcript. The worker decodes the saved recording and verifies a Fast Transcription result before permitting new minutes. Automatic recovery supports up to two hours and 250 MB of saved input audio. Old recordings without a finalized manifest or missing audio require manual recovery; no button fabricates missing speech.
@@ -78,6 +112,9 @@ The restore refuses an occupied destination, unsafe paths and checksum/integrity
 All backend history is retained beyond ten meetings. Only the browser read cache is limited to ten complete snapshots; pending uploads are separate. Clearing site data removes unsynchronized browser audio/text and the read cache. Changing localhost ports/origins creates a different browser storage area.
 
 ## Development checks
+
+See [Testing guide](TESTING.md) for API and integration examples, speaker UI scenarios,
+isolated test commands, and the live Teams/Zoom acceptance checklist.
 
 ```powershell
 cd backend

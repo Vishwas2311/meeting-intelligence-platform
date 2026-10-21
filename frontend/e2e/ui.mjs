@@ -75,22 +75,23 @@ const browser = await chromium.launch({
 const results = [];
 const speechModule = `
 export const ResultReason={RecognizedSpeech:3};
-export const SpeechConfig={fromAuthorizationToken(){return {};}};
-export const AudioConfig={fromStreamInput(){return {};}};
-export class SpeechRecognizer {
+export const PropertyId={SpeechServiceResponse_DiarizeIntermediateResults:1001};
+export const SpeechConfig={fromAuthorizationToken(){return {setProperty(){}};}};
+export const AudioConfig={fromStreamInput(stream){window.__speechInput=stream;return {};}};
+export class ConversationTranscriber {
   constructor(){window.__recognizer=this;}
-  startContinuousRecognitionAsync(ok){
+  startTranscribingAsync(ok){
     if(window.__fault==='speech-start-hang')return;
     if(window.__fault==='speech-start-delayed'){window.__releaseSpeechStart=()=>{this.sessionStarted?.();ok();};return;}
     setTimeout(()=>{this.sessionStarted?.();ok();},10);
   }
-  stopContinuousRecognitionAsync(ok){
+  stopTranscribingAsync(ok){
     if(window.__fault==='speech-stop-hang')return;
     setTimeout(()=>{this.sessionStopped?.();ok();},10);
   }
   close(){this.closed=true;}
 }
-export default {ResultReason,SpeechConfig,AudioConfig,SpeechRecognizer};
+export default {ResultReason,SpeechConfig,AudioConfig,ConversationTranscriber,PropertyId};
 `;
 async function setup() {
   await api('/__test__/mode', 'POST', { value: 'success' });
@@ -132,9 +133,10 @@ async function setup() {
     window.__streams = [];
     window.__nativeRecorder = window.MediaRecorder;
     window.__nativeGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-    const stream = async () => {
+    const stream = async (frequency = 440) => {
       const audio = new AudioContext();
       const oscillator = audio.createOscillator();
+      oscillator.frequency.value = frequency;
       const destination = audio.createMediaStreamDestination();
       oscillator.connect(destination);
       oscillator.start();
@@ -153,15 +155,18 @@ async function setup() {
         window.__streams.push(video);
         return video;
       }
-      return stream();
+      const shared = await stream(880);
+      shared.addTrack(document.createElement('canvas').captureStream().getVideoTracks()[0]);
+      return shared;
     };
     class Recorder extends EventTarget {
       static isTypeSupported() {
         return window.__fault !== 'unsupported-recorder';
       }
       state = 'inactive';
-      constructor() {
+      constructor(stream) {
         super();
+        window.__recordingInput = stream;
         window.__recorder = this;
       }
       start() {
@@ -201,6 +206,12 @@ async function setup() {
   await page.goto('http://localhost:5173');
   await page.getByRole('heading', { name: 'Live Meeting Studio' }).waitFor();
   await page.waitForLoadState('networkidle');
+  assert.equal(
+    await page.getByLabel('Audio source', { exact: true }).inputValue(),
+    'meeting-audio',
+  );
+  // Existing scenarios exercise in-person capture; combined capture has its own cases below.
+  await page.getByLabel('Audio source', { exact: true }).selectOption('microphone');
   return { page, context, state };
 }
 async function begin(page, title = 'Synthetic UI recording') {
@@ -219,7 +230,7 @@ async function begin(page, title = 'Synthetic UI recording') {
 async function emit(page, text = 'We agreed to review a synthetic pilot.') {
   await page.evaluate(
     (text) =>
-      window.__recognizer.recognized?.(null, {
+      window.__recognizer.transcribed?.(null, {
         result: { reason: 3, text, offset: 1000000, duration: 10000000 },
       }),
     text,
@@ -237,6 +248,9 @@ async function stop(page) {
 async function chooseRow(page, row) {
   const title = await row.locator('b').innerText();
   await row.click();
+  await page.getByRole('heading', { name: /^(Live Meeting Studio|Meeting Minutes)$/ }).waitFor();
+  // Capture scenarios explicitly return to Workspace after opening the saved record.
+  await page.getByRole('button', { name: 'Workspace', exact: true }).click();
   await page.getByRole('heading', { name: 'Live Meeting Studio', exact: true }).waitFor();
   await page.waitForFunction(
     (title) => document.querySelector('.session-top h2')?.textContent === title,
@@ -333,6 +347,530 @@ async function check(name, callback) {
   }
 }
 try {
+  await check('speakers: an older refresh cannot undo approval', async ({ page, state }) => {
+    await page.getByRole('button', { name: 'Meeting History', exact: true }).click();
+    await page.locator('.meeting-row').filter({ hasText: 'Synthetic history' }).first().click();
+    await page.locator('#mom-editor').waitFor();
+    const mid = await page.evaluate(() => localStorage.getItem('lastMeetingId'));
+    const original = (await api(`/api/meetings/${mid}/mom`)).data;
+    let held;
+    const entered = new Promise((resolve) => (held = resolve));
+    let release;
+    const barrier = new Promise((resolve) => (release = resolve));
+    state.releasePatch = release;
+    await page.route(`**/api/meetings/${mid}/mom`, async (route) => {
+      held();
+      await barrier;
+      await route.fulfill({ json: original });
+    });
+    await page.route(`**/api/meetings/${mid}/mom/approve`, (route) =>
+      route.fulfill({ json: { status: 'approved' } }),
+    );
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await entered;
+    await page.getByRole('button', { name: 'Approve', exact: true }).click();
+    await page.getByText('MoM approved.', { exact: true }).waitFor();
+    release();
+    await page.waitForLoadState('networkidle');
+    assert.equal(await page.locator('.minutes-toolbar-label .pill').innerText(), 'Approved');
+    assert(await page.getByRole('button', { name: 'Save Draft', exact: true }).isDisabled());
+  });
+  await check(
+    'speakers: a failed rename retains the old label and works on a phone',
+    async ({ page }) => {
+      await begin(page, 'Speaker rename failure');
+      await page.evaluate(() =>
+        window.__recognizer.transcribed(null, {
+          result: {
+            reason: 3,
+            speakerId: 'Guest-1',
+            text: 'A short speaker test.',
+            offset: 0,
+            duration: 10000000,
+          },
+        }),
+      );
+      await page.getByRole('button', { name: 'Rename Speaker 1', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'Rename speaker' });
+      await dialog.getByLabel('Name', { exact: true }).fill('Raj');
+      await page.route('**/api/meetings/*/speakers', (route) =>
+        route.fulfill({ status: 503, json: { detail: 'Synthetic save failure' } }),
+      );
+      await dialog.getByRole('button', { name: 'Save name', exact: true }).click();
+      await dialog.getByRole('alert').filter({ hasText: 'Synthetic save failure' }).waitFor();
+      assert.equal(await page.locator('.transcript-entry strong').innerText(), 'Speaker 1');
+      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.unroute('**/api/meetings/*/speakers');
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.getByRole('button', { name: 'Rename Speaker 1', exact: true }).click();
+      const name = 'A long participant name that should wrap correctly on a phone';
+      await dialog.getByLabel('Name', { exact: true }).fill(name);
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      await page.screenshot({ path: path.join(output, 'speaker-rename-phone.png') });
+      await dialog.getByRole('button', { name: 'Save name', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      assert.equal(await page.locator('.transcript-entry strong').innerText(), name);
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      await stop(page);
+    },
+  );
+  await check(
+    'speakers: three voices can be renamed across live, saved and offline transcripts',
+    async ({ page, state }) => {
+      await begin(page, 'Speaker naming test');
+      const emitVoice = async (speakerId, text) => {
+        await page.evaluate(
+          ({ speakerId, text }) =>
+            window.__recognizer.transcribed(null, {
+              result: { reason: 3, speakerId, text, offset: 1000000, duration: 10000000 },
+            }),
+          { speakerId, text },
+        );
+        await page.locator('.transcript-entry p').filter({ hasText: text }).waitFor();
+      };
+      await emitVoice('Guest-1', 'First voice opening.');
+      await emitVoice('Guest-2', 'Second voice reply.');
+      await emitVoice('Guest-1', 'First voice again.');
+      await emitVoice('Guest-3', 'Third voice joins.');
+      assert.deepEqual(await page.locator('.transcript-entry strong').allTextContents(), [
+        'Speaker 1',
+        'Speaker 2',
+        'Speaker 1',
+        'Speaker 3',
+      ]);
+      await page.getByRole('button', { name: 'Rename Speaker 1', exact: true }).first().click();
+      const dialog = page.getByRole('dialog', { name: 'Rename speaker' });
+      await dialog.getByLabel('Name', { exact: true }).fill('Raj');
+      await dialog.getByRole('button', { name: 'Save name', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      await emitVoice('Guest-1', 'First voice after naming.');
+      assert.equal(
+        await page.locator('.transcript-entry strong').filter({ hasText: /^Raj$/ }).count(),
+        3,
+      );
+      await page.evaluate(() =>
+        window.__recognizer.transcribing(null, {
+          result: { text: 'Still identifying.', speakerId: 'Unknown', offset: 0 },
+        }),
+      );
+      await page.locator('.interim').waitFor();
+      assert.equal(await page.locator('.interim strong').innerText(), 'Unidentified speaker');
+      await emitVoice('Unknown', 'Unidentified short response.');
+      await stop(page);
+      const mid = await page.evaluate(() => localStorage.getItem('lastMeetingId'));
+      const saved = (await api(`/api/meetings/${mid}/transcript`)).data;
+      assert.equal(
+        new Set(saved.segments.filter((s) => s.speaker_id).map((s) => s.speaker_id)).size,
+        3,
+      );
+      assert.equal(saved.segments.at(-1).speaker_id, null);
+      assert.deepEqual(Object.values(saved.speaker_names), ['Raj']);
+      await page.reload();
+      await page.locator('.transcript-entry strong').filter({ hasText: /^Raj$/ }).first().waitFor();
+      await page.getByRole('button', { name: 'Generate MoM', exact: true }).click();
+      await page.locator('#mom-editor').waitFor({ timeout: 15000 });
+      await page
+        .getByRole('button', { name: 'View supporting transcript', exact: true })
+        .first()
+        .click();
+      const evidence = page.getByRole('dialog', { name: 'Supporting transcript' });
+      assert.equal(await evidence.locator('.transcript-entry strong').innerText(), 'Raj');
+      await evidence.getByRole('button', { name: 'Close transcript', exact: true }).click();
+      await page
+        .getByRole('navigation', { name: 'Minutes sections' })
+        .getByRole('button', { name: /^Transcript/ })
+        .click();
+      await page
+        .locator('.transcript-card .transcript-entry strong')
+        .filter({ hasText: /^Raj$/ })
+        .first()
+        .waitFor();
+      await page.getByRole('button', { name: 'Rename Speaker 2', exact: true }).click();
+      await dialog.getByLabel('Name', { exact: true }).fill('Priya');
+      await dialog.getByRole('button', { name: 'Save name', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      await page
+        .locator('.transcript-entry strong')
+        .filter({ hasText: /^Priya$/ })
+        .waitFor();
+      await page.screenshot({ path: path.join(output, 'speaker-names-saved.png') });
+      state.outage = true;
+      await page.getByRole('button', { name: 'Meeting History', exact: true }).click();
+      await page.getByText('Showing offline copies.', { exact: false }).waitFor();
+      await page.locator('.meeting-row').filter({ hasText: 'Speaker naming test' }).click();
+      await page
+        .getByRole('navigation', { name: 'Minutes sections' })
+        .getByRole('button', { name: /^Transcript/ })
+        .click();
+      await page
+        .locator('.transcript-entry strong')
+        .filter({ hasText: /^Priya$/ })
+        .waitFor();
+      assert.equal(await page.getByRole('button', { name: /^Rename / }).count(), 0);
+    },
+  );
+  await check(
+    'speakers: reconnecting does not assign an earlier name to a new guest ID',
+    async ({ page }) => {
+      await begin(page, 'Speaker reconnect test');
+      await page.evaluate(() =>
+        window.__recognizer.transcribed(null, {
+          result: {
+            reason: 3,
+            speakerId: 'Guest-1',
+            text: 'Before reconnect.',
+            offset: 0,
+            duration: 10000000,
+          },
+        }),
+      );
+      await page.getByRole('button', { name: 'Rename Speaker 1', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'Rename speaker' });
+      await dialog.getByLabel('Name', { exact: true }).fill('Raj');
+      await dialog.getByRole('button', { name: 'Save name', exact: true }).click();
+      await dialog.waitFor({ state: 'hidden' });
+      await page.evaluate(() => {
+        window.__oldRecognizer = window.__recognizer;
+        window.__recognizer.canceled(null, { reason: 'Synthetic disconnect' });
+      });
+      await page.waitForFunction(
+        () =>
+          window.__recognizer !== window.__oldRecognizer &&
+          [...document.querySelectorAll('.health-list b')].some(
+            (e) => e.textContent.trim() === 'connected',
+          ),
+        { timeout: 20000 },
+      );
+      await page.evaluate(() =>
+        window.__recognizer.transcribed(null, {
+          result: {
+            reason: 3,
+            speakerId: 'Guest-1',
+            text: 'After reconnect.',
+            offset: 0,
+            duration: 10000000,
+          },
+        }),
+      );
+      await page.locator('.transcript-entry p').filter({ hasText: 'After reconnect.' }).waitFor();
+      assert.deepEqual(await page.locator('.transcript-entry strong').allTextContents(), [
+        'Raj',
+        'Speaker 2',
+      ]);
+      await stop(page);
+    },
+  );
+  await check(
+    'timestamps: version history displays UTC records in local time',
+    async ({ page, context }) => {
+      const cdp = await context.newCDPSession(page);
+      await cdp.send('Emulation.setTimezoneOverride', { timezoneId: 'Asia/Kolkata' });
+      await page.getByRole('button', { name: 'Meeting History', exact: true }).click();
+      await page.locator('.meeting-row').filter({ hasText: 'Synthetic history' }).first().click();
+      await page.locator('#mom-editor').waitFor();
+      const mid = await page.evaluate(() => localStorage.getItem('lastMeetingId'));
+      const current = await api(`/api/meetings/${mid}/mom`);
+      assert.equal((await api(`/api/meetings/${mid}/mom`, 'PATCH', current.data.data)).status, 200);
+      const revisions = (await api(`/api/meetings/${mid}/mom/revisions`)).data;
+      assert.match(revisions[0].at, /(?:Z|\+00:00)$/);
+      const expected = await page.evaluate((at) => {
+        const date = new Date(at);
+        if (date.getTimezoneOffset() !== -330) throw Error('Expected India timezone');
+        return date.toLocaleString();
+      }, revisions[0].at);
+      await page.getByRole('button', { name: 'Version history', exact: true }).click();
+      await page.locator('.revision-strip button').first().waitFor();
+      assert(
+        (await page.locator('.revision-strip button').first().innerText()).startsWith(expected),
+      );
+    },
+  );
+  await check(
+    'saved meetings: history opens existing minutes and full transcript without generation',
+    async ({ page, state }) => {
+      const generations = [];
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && request.url().endsWith('/mom/generate'))
+          generations.push(request.url());
+      });
+      await page.getByRole('button', { name: 'Meeting History', exact: true }).click();
+      const row = page.locator('.meeting-row').filter({ hasText: 'Synthetic history' }).first();
+      const title = await row.locator('b').innerText();
+      await row.click();
+      await page.getByRole('heading', { name: 'Meeting Minutes', exact: true }).waitFor();
+      const editor = page.locator('#mom-editor');
+      await editor.waitFor();
+      const saved = await editor.inputValue();
+      assert.equal(await page.locator('.minutes-jobs').count(), 0);
+      const outline = page.getByRole('navigation', { name: 'Minutes sections' });
+      await editor.fill('Keep this unsaved review while reading the transcript.');
+      await outline.getByRole('button', { name: /^Transcript/ }).click();
+      await page.locator('.transcript-card .transcript-entry').first().waitFor();
+      assert.equal(
+        await page.locator('.transcript-card .transcript-entry time').first().innerText(),
+        '00:00:00',
+      );
+      assert.equal(
+        await page.locator('.transcript-card .transcript-entry p').first().innerText(),
+        'Synthetic pilot discussion.',
+      );
+      await outline.getByRole('button', { name: /^Summary/ }).click();
+      assert.equal(
+        await editor.inputValue(),
+        'Keep this unsaved review while reading the transcript.',
+      );
+      await page.getByRole('button', { name: 'Discard changes', exact: true }).click();
+      assert.equal(await editor.inputValue(), saved);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await page.getByRole('button', { name: 'Meeting History', exact: true }).click();
+        await page.getByRole('textbox', { name: 'Search meetings' }).fill(title);
+        await page.getByRole('button', { name: 'Search', exact: true }).click();
+        await page.locator('.meeting-row').filter({ hasText: title }).first().click();
+        await editor.waitFor();
+        assert.equal(await editor.inputValue(), saved);
+      }
+      await page.screenshot({ path: path.join(output, 'saved-meeting-minutes.png') });
+      await page.getByRole('button', { name: 'Workspace', exact: true }).click();
+      assert.equal(
+        await page.getByRole('button', { name: 'Generate MoM', exact: true }).count(),
+        0,
+      );
+      await page.getByRole('button', { name: 'View saved minutes', exact: true }).click();
+      await editor.waitFor();
+      for (const width of [1366, 390]) {
+        await page.setViewportSize({ width, height: width === 1366 ? 768 : 844 });
+        await outline.getByRole('button', { name: /^Transcript/ }).click();
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+        await page.screenshot({ path: path.join(output, `saved-meeting-transcript-${width}.png`) });
+      }
+      await page.setViewportSize({ width: 1366, height: 768 });
+      state.outage = true;
+      await page.getByRole('button', { name: 'Meeting History', exact: true }).click();
+      await page.getByText('Showing offline copies.', { exact: false }).waitFor();
+      await page.locator('.meeting-row').filter({ hasText: title }).first().click();
+      await editor.waitFor();
+      assert.equal(await editor.inputValue(), saved);
+      assert(await page.getByRole('button', { name: 'Approve', exact: true }).isDisabled());
+      await outline.getByRole('button', { name: /^Transcript/ }).click();
+      await page.locator('.transcript-card .transcript-entry').first().waitFor();
+      assert.equal(generations.length, 0);
+    },
+  );
+  await check(
+    'saved meetings: first generation is saved and reopening does not create another job',
+    async ({ page }) => {
+      await begin(page, 'Generate once and reuse');
+      await emit(page);
+      await stop(page);
+      const mid = await page.evaluate(() => localStorage.getItem('lastMeetingId'));
+      await page.getByRole('button', { name: 'Generate MoM', exact: true }).click();
+      const editor = page.locator('#mom-editor');
+      await editor.waitFor({ timeout: 15000 });
+      const saved = await editor.inputValue();
+      const before = (await api(`/api/meetings/${mid}/jobs`)).data;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await page.getByRole('button', { name: 'Meeting History', exact: true }).click();
+        await page.locator('.meeting-row').filter({ hasText: 'Generate once and reuse' }).click();
+        await editor.waitFor();
+        assert.equal(await editor.inputValue(), saved);
+      }
+      const after = (await api(`/api/meetings/${mid}/jobs`)).data;
+      assert.deepEqual(
+        after.map((job) => job.id),
+        before.map((job) => job.id),
+      );
+      assert.equal(after.length, 1);
+      assert.equal(await page.locator('.minutes-jobs').count(), 0);
+    },
+  );
+  await check(
+    'saved meetings: stale generation button loads minutes already saved by another request',
+    async ({ page }) => {
+      await begin(page, 'Saved by another request');
+      await emit(page);
+      await stop(page);
+      const mid = await page.evaluate(() => localStorage.getItem('lastMeetingId'));
+      const queued = await api(`/api/meetings/${mid}/mom/generate`, 'POST');
+      assert.equal(queued.status, 202, JSON.stringify(queued.data));
+      let existing;
+      for (let attempt = 0; attempt < 75; attempt++) {
+        existing = await api(`/api/meetings/${mid}/mom`);
+        if (existing.status === 200) break;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+      assert.equal(
+        existing.status,
+        200,
+        'Minutes must already be persisted before testing a stale screen',
+      );
+      const generations = [];
+      const reads = [];
+      page.on('response', (response) => {
+        if (response.url().endsWith('/mom')) reads.push(response.status());
+      });
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && request.url().endsWith('/mom/generate'))
+          generations.push(request.url());
+      });
+      await page.getByRole('button', { name: 'Generate MoM', exact: true }).click();
+      await page.locator('#mom-editor').waitFor();
+      assert.equal(
+        generations.length,
+        0,
+        `Existing status: ${existing.data.status}; minutes GET responses: ${JSON.stringify(reads)}`,
+      );
+      assert.equal((await api(`/api/meetings/${mid}/jobs`)).data.length, 1);
+    },
+  );
+  await check(
+    'transcript format: named turns, timestamps, saved copies and evidence use the same layout',
+    async ({ page, state }) => {
+      const meeting = (
+        await api('/api/meetings', 'POST', {
+          title: 'Project planning transcript',
+          consent_confirmed: true,
+          source: 'teams-transcript',
+        })
+      ).data;
+      await api(`/api/meetings/${meeting.id}/start`, 'POST');
+      const segments = [
+        {
+          client_event_id: 'named-1',
+          text: 'Let’s review the project progress.',
+          speaker_id: 'Vishal',
+          start_ms: 12000,
+          end_ms: 18500,
+          source: 'imported',
+        },
+        {
+          client_event_id: 'named-2',
+          text: 'The backend integration is complete.\nTesting can begin today.',
+          speaker_id: 'Priya',
+          start_ms: 19000,
+          end_ms: 26500,
+          source: 'imported',
+        },
+        {
+          client_event_id: 'unknown',
+          text: '<img src=x onerror="window.__xss=true">',
+          start_ms: 27000,
+          end_ms: 33000,
+          source: 'imported',
+        },
+        {
+          client_event_id: 'long-name',
+          text: 'A long name should wrap without hiding the timestamp.',
+          speaker_id: 'A-very-long-participant-name-that-needs-to-wrap-on-a-small-phone-screen',
+          start_ms: 34000,
+          end_ms: 38000,
+          source: 'imported',
+        },
+      ];
+      assert.equal(
+        (await api(`/api/meetings/${meeting.id}/segments`, 'POST', { segments })).status,
+        200,
+      );
+      await api(`/api/meetings/${meeting.id}/stop`, 'POST');
+      await page.getByRole('button', { name: 'Meeting History', exact: true }).click();
+      await chooseRow(page, page.locator('.meeting-row').filter({ hasText: meeting.title }));
+      const entries = page.locator('.transcript .transcript-entry');
+      assert.equal(await entries.count(), 4);
+      assert.deepEqual(await entries.locator('header strong').allTextContents(), [
+        'Vishal',
+        'Priya',
+        'Unidentified speaker',
+        segments[3].speaker_id,
+      ]);
+      assert.deepEqual(await entries.locator('time').allTextContents(), [
+        '00:00:12',
+        '00:00:19',
+        '00:00:27',
+        '00:00:34',
+      ]);
+      assert.equal(
+        await entries.first().locator('time').getAttribute('title'),
+        '00:00:12 – 00:00:18',
+      );
+      assert.equal(await entries.nth(1).locator('p').innerText(), segments[1].text);
+      assert.equal(await page.locator('.transcript img').count(), 0);
+      assert.equal(await page.evaluate(() => window.__xss), undefined);
+      for (const width of [1366, 390, 360]) {
+        await page.setViewportSize({ width, height: width === 1366 ? 768 : 844 });
+        await page.locator('.transcript').evaluate((pane) => (pane.scrollTop = 0));
+        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+        const bounds = await entries.evaluateAll((rows) =>
+          rows.every((row) => {
+            const time = row.querySelector('time').getBoundingClientRect();
+            const name = row.querySelector('strong').getBoundingClientRect();
+            const box = row.getBoundingClientRect();
+            return (
+              time.right <= box.right + 1 && name.right <= box.right + 1 && time.left >= box.left
+            );
+          }),
+        );
+        assert(bounds, 'Names and timestamps must fit the transcript column');
+        await page.screenshot({
+          path: path.join(output, `transcript-format-${width}.png`),
+          fullPage: true,
+        });
+      }
+      await page.setViewportSize({ width: 1366, height: 768 });
+      await page.waitForFunction(async (mid) => {
+        const { cachedMeetings } = await import('/src/offline.ts');
+        return (await cachedMeetings()).some(
+          (saved) => saved.id === mid && saved.segments.length === 4,
+        );
+      }, meeting.id);
+      state.outage = true;
+      await page.getByRole('button', { name: 'Meeting History', exact: true }).click();
+      await page.getByText('Showing offline copies.', { exact: false }).waitFor();
+      await chooseRow(page, page.locator('.meeting-row').filter({ hasText: meeting.title }));
+      assert.equal(await entries.first().locator('header strong').innerText(), 'Vishal');
+      assert.equal(await entries.first().locator('time').innerText(), '00:00:12');
+      state.outage = false;
+      await api(`/api/meetings/${meeting.id}/mom/generate`, 'POST');
+      await page.getByRole('button', { name: 'Meeting Minutes', exact: true }).click();
+      await page.locator('#mom-editor').waitFor({ timeout: 15000 });
+      await page
+        .getByRole('button', { name: 'View supporting transcript', exact: true })
+        .first()
+        .click();
+      const dialog = page.getByRole('dialog', { name: 'Supporting transcript' });
+      await dialog.waitFor();
+      assert.equal(await dialog.locator('.transcript-entry strong').innerText(), 'Vishal');
+      assert.equal(await dialog.locator('.transcript-entry time').innerText(), '00:00:12');
+      await page.screenshot({ path: path.join(output, 'transcript-format-evidence.png') });
+      await page.keyboard.press('Escape');
+    },
+  );
+  await check(
+    'transcript format: live text has a timestamp and pending status until finalized',
+    async ({ page }) => {
+      await begin(page);
+      await page.evaluate(() =>
+        window.__recognizer.transcribing(null, {
+          result: { text: 'An unfinished spoken sentence', offset: 125000000 },
+        }),
+      );
+      const pending = page.locator('.transcript-entry.interim');
+      await pending.waitFor();
+      assert.equal(await pending.locator('strong').innerText(), 'Unidentified speaker');
+      assert.equal(await pending.locator('.transcript-pending').innerText(), 'Recognizing…');
+      assert.match(await pending.locator('time').innerText(), /^00:00:\d{2}$/);
+      const offset = Number((await pending.locator('time').getAttribute('datetime')).slice(2, -1));
+      assert(offset >= 12.5 && offset < 16);
+      await emit(page);
+      assert.equal(await pending.count(), 0);
+      await page.evaluate(() =>
+        window.__recognizer.transcribing(null, {
+          result: { text: 'Pending at shutdown', offset: 0 },
+        }),
+      );
+      await pending.waitFor();
+      await stop(page);
+      assert.equal(await pending.count(), 0);
+    },
+  );
   await check('required fields and recording consent', async ({ page, state }) => {
     const title = page.getByLabel('Meeting title', { exact: true });
     await title.fill(' ');
@@ -358,7 +896,7 @@ try {
     await page.locator('select').selectOption('browser-tab');
     await page.getByRole('checkbox', { name: /I confirm recording/ }).check();
     await page.getByRole('button', { name: 'Start Meeting', exact: true }).click();
-    await page.getByRole('alert').filter({ hasText: 'provided no audio' }).waitFor();
+    await page.getByRole('alert').filter({ hasText: 'No meeting audio was shared' }).waitFor();
     assert.equal(state.creates, 0);
     assert(
       await page.evaluate(() =>
@@ -366,6 +904,131 @@ try {
       ),
     );
   });
+  await check(
+    'meeting audio: microphone and remote audio reach recording and Speech together',
+    async ({ page }) => {
+      await page.getByLabel('Audio source', { exact: true }).selectOption('meeting-audio');
+      await begin(page, 'Synthetic two-sided meeting');
+      const audio = await page.evaluate(async () => {
+        if (window.__recordingInput !== window.__speechInput)
+          throw new Error('Recorder and Speech received different audio streams');
+        const recording = new window.__nativeRecorder(window.__recordingInput, {
+          mimeType: 'audio/webm',
+        });
+        const chunks = [];
+        recording.ondataavailable = (event) => chunks.push(event.data);
+        recording.start();
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const stopped = new Promise((resolve) =>
+          recording.addEventListener('stop', resolve, { once: true }),
+        );
+        recording.stop();
+        await stopped;
+        const decoder = new AudioContext();
+        try {
+          const buffer = await decoder.decodeAudioData(await new Blob(chunks).arrayBuffer());
+          const samples = buffer.getChannelData(0);
+          const start = Math.floor(buffer.sampleRate * 0.1);
+          const length = Math.min(samples.length - start, Math.floor(buffer.sampleRate * 0.2));
+          function amplitude(frequency) {
+            let real = 0,
+              imaginary = 0;
+            for (let i = 0; i < length; i++) {
+              const phase = (2 * Math.PI * frequency * i) / buffer.sampleRate;
+              real += samples[start + i] * Math.cos(phase);
+              imaginary += samples[start + i] * Math.sin(phase);
+            }
+            return (2 * Math.hypot(real, imaginary)) / length;
+          }
+          return {
+            microphone: amplitude(440),
+            remote: amplitude(880),
+            video: window.__recordingInput.getVideoTracks().length,
+          };
+        } finally {
+          await decoder.close();
+        }
+      });
+      assert(
+        audio.microphone > 0.1 && audio.remote > 0.1,
+        `Both voices must survive WebM encoding: ${JSON.stringify(audio)}`,
+      );
+      assert.equal(audio.video, 0);
+      const mid = await page.evaluate(() => localStorage.getItem('lastMeetingId'));
+      assert.equal((await api(`/api/meetings/${mid}`)).data.source, 'meeting-audio');
+      await emit(page);
+      await stop(page);
+      assert(
+        await page.evaluate(() =>
+          window.__streams.every((s) => s.getTracks().every((t) => t.readyState === 'ended')),
+        ),
+      );
+      await page.getByRole('button', { name: 'Generate MoM', exact: true }).click();
+      await page.locator('#mom-editor').waitFor({ timeout: 15000 });
+    },
+  );
+  await check(
+    'meeting audio: missing shared audio never falls back to microphone only',
+    async ({ page, state }) => {
+      await page.getByLabel('Audio source', { exact: true }).selectOption('meeting-audio');
+      await page.evaluate(() => (window.__fault = 'tab-no-audio'));
+      await page.getByRole('checkbox', { name: /I confirm recording/ }).check();
+      await page.getByRole('button', { name: 'Start Meeting', exact: true }).click();
+      await page.getByRole('alert').filter({ hasText: 'No meeting audio was shared' }).waitFor();
+      assert.equal(state.creates, 0);
+      assert(
+        await page.evaluate(() =>
+          window.__streams.every((s) => s.getTracks().every((t) => t.readyState === 'ended')),
+        ),
+      );
+    },
+  );
+  await check('meeting audio: microphone denial releases shared audio', async ({ page, state }) => {
+    await page.getByLabel('Audio source', { exact: true }).selectOption('meeting-audio');
+    await page.evaluate(() => (window.__fault = 'microphone-denied'));
+    await page.getByRole('checkbox', { name: /I confirm recording/ }).check();
+    await page.getByRole('button', { name: 'Start Meeting', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: 'Permission denied' }).waitFor();
+    assert.equal(state.creates, 0);
+    assert(
+      await page.evaluate(() =>
+        window.__streams.every((s) => s.getTracks().every((t) => t.readyState === 'ended')),
+      ),
+    );
+  });
+  for (const [name, index] of [
+    ['shared audio', 0],
+    ['microphone', 1],
+  ]) {
+    await check(
+      `meeting audio: losing ${name} stops both sources and blocks minutes`,
+      async ({ page }) => {
+        await page.getByLabel('Audio source', { exact: true }).selectOption('meeting-audio');
+        await begin(page);
+        await emit(page);
+        await page.evaluate((index) => {
+          const track = window.__streams[index].getAudioTracks()[0];
+          track.stop();
+          track.dispatchEvent(new Event('ended'));
+        }, index);
+        await page
+          .getByRole('alert')
+          .filter({ hasText: 'Audio capture ended unexpectedly' })
+          .waitFor();
+        assert(
+          await page.evaluate(() =>
+            window.__streams.every((s) => s.getTracks().every((t) => t.readyState === 'ended')),
+          ),
+        );
+        await stop(page);
+        await page.getByRole('button', { name: 'Generate MoM', exact: true }).click();
+        await page
+          .getByRole('alert')
+          .filter({ hasText: /incomplete|transcription/ })
+          .waitFor();
+      },
+    );
+  }
   await check('unsupported recorder cleans up and permits a new meeting', async ({ page }) => {
     await page.evaluate(() => (window.__fault = 'unsupported-recorder'));
     await page.getByRole('checkbox', { name: /I confirm recording/ }).check();
@@ -385,6 +1048,8 @@ try {
       await emit(page);
       await page.getByRole('button', { name: 'Pause', exact: true }).click();
       await page.getByRole('button', { name: 'Resume', exact: true }).waitFor();
+      // Let the 100 ms display tick show the already-paused clock before sampling it.
+      await page.waitForTimeout(150);
       const timer = await page.getByRole('timer').innerText();
       await page.waitForTimeout(250);
       assert.equal(await page.getByRole('timer').innerText(), timer);
@@ -583,7 +1248,7 @@ try {
       await page.getByText('Showing offline copies.', { exact: false }).waitFor();
       assert.equal(await page.locator('.meeting-row').count(), 10);
       await page.locator('.meeting-row').first().click();
-      await page.getByRole('heading', { name: 'Live Meeting Studio', exact: true }).waitFor();
+      await page.getByRole('heading', { name: 'Meeting Minutes', exact: true }).waitFor();
       await page.getByRole('button', { name: 'Meeting Minutes', exact: true }).click();
       assert(await page.getByRole('button', { name: 'Approve', exact: true }).isDisabled());
     },
@@ -671,13 +1336,13 @@ try {
       await page.getByRole('button', { name: 'New Meeting', exact: true }).click();
       await begin(page, 'Synthetic new session');
       await page.evaluate(() =>
-        window.__oldRecognizer.recognized?.(null, {
+        window.__oldRecognizer.transcribed?.(null, {
           result: { reason: 3, text: 'STALE OLD TRANSCRIPT', offset: 0, duration: 10000 },
         }),
       );
       assert.equal(await page.getByText('STALE OLD TRANSCRIPT', { exact: true }).count(), 0);
       await page.evaluate(() => {
-        window.__oldRecognizer.recognizing?.(null, { result: { text: 'STALE PARTIAL' } });
+        window.__oldRecognizer.transcribing?.(null, { result: { text: 'STALE PARTIAL' } });
         window.__oldRecognizer.canceled?.(null, { reason: 'STALE CANCEL' });
       });
       assert.equal(await page.getByText('STALE PARTIAL', { exact: true }).count(), 0);
@@ -1048,7 +1713,8 @@ try {
       });
     });
     await api('/__test__/mode', 'POST', { value: 'rate-limit' });
-    await page.getByRole('button', { name: 'Generate MoM', exact: true }).click();
+    await api(`/api/meetings/${mid}/mom/generate`, 'POST');
+    await page.getByRole('button', { name: 'Meeting Minutes', exact: true }).click();
     const editor = page.locator('#mom-editor');
     await editor.waitFor();
     const draft = 'KEEP THIS UNSAVED DRAFT WHILE POLLING';
@@ -1130,8 +1796,12 @@ try {
       await stop(page);
       const mid = await page.evaluate(() => localStorage.getItem('lastMeetingId'));
       let fail = true;
+      let queued = false;
+      page.on('request', (request) => {
+        if (request.url().endsWith('/mom/generate') && request.method() === 'POST') queued = true;
+      });
       await page.route(`**/api/meetings/${mid}/mom`, async (route) => {
-        if (fail && route.request().method() === 'GET') {
+        if (queued && fail && route.request().method() === 'GET') {
           fail = false;
           return route.fulfill({ status: 503, json: { detail: 'Synthetic transient error' } });
         }
@@ -1236,7 +1906,7 @@ try {
             Discussion: '.discussion-card',
             Decisions: '.decisions-card',
             'Action items': '.actions-card',
-            'Open questions': '.minute-card:last-child',
+            'Open questions': '.questions-card',
             Summary: '.summary-card',
           }[title];
           const heading = await page.locator(`${selector} h3`).boundingBox();
@@ -1324,10 +1994,10 @@ try {
       assert.equal(minutes.data.action_items.length, 12);
       await page.getByRole('button', { name: 'Approve', exact: true }).click();
       await page.getByText('MoM approved.', { exact: true }).waitFor();
-      assert(
-        await page
-          .locator('.minutes-document textarea')
-          .evaluateAll((fields) => fields.every((field) => field.readOnly)),
+      await page.waitForFunction(() =>
+        [...document.querySelectorAll('.minutes-document textarea')].every(
+          (field) => field.readOnly,
+        ),
       );
       assert.deepEqual(writes, ['save', 'approve']);
     },

@@ -1,7 +1,7 @@
 import hashlib
 import os
 from contextlib import asynccontextmanager
-from datetime import UTC
+from datetime import UTC, datetime
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +19,7 @@ from .models import (
     Mom,
     MomRevision,
     Segment,
+    SpeakerName,
     WorkerState,
     now,
 )
@@ -37,6 +38,7 @@ from .schemas import (
     MeetingCreate,
     MomData,
     SegmentBatch,
+    SpeakerRename,
     stored_minutes,
 )
 from .security import require_actor
@@ -74,6 +76,13 @@ def get_meeting(db: Session, mid: str, actor: str) -> Meeting:
     return m
 
 
+def utc_time(value: datetime | None) -> datetime | None:
+    # SQLite drops timezone metadata from our UTC timestamps when reading them back.
+    if value is None:
+        return None
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 def view(m: Meeting) -> dict:
     return {
         "id": m.id,
@@ -85,9 +94,9 @@ def view(m: Meeting) -> dict:
         "capture_status": m.capture_status,
         "stt_status": m.stt_status,
         "sync_status": m.sync_status,
-        "created_at": m.created_at.replace(tzinfo=UTC) if m.created_at else None,
-        "started_at": m.started_at.replace(tzinfo=UTC) if m.started_at else None,
-        "ended_at": m.ended_at.replace(tzinfo=UTC) if m.ended_at else None,
+        "created_at": utc_time(m.created_at),
+        "started_at": utc_time(m.started_at),
+        "ended_at": utc_time(m.ended_at),
         "revision": m.revision,
     }
 
@@ -365,6 +374,10 @@ def transcript(mid: str, db: Session = Depends(db_session), actor: str = Depends
     ss = transcript_segments(db, mid)
     return {
         "meeting_id": mid,
+        "speaker_names": {
+            s.speaker_id: s.display_name
+            for s in db.scalars(select(SpeakerName).where(SpeakerName.meeting_id == mid))
+        },
         "segments": [
             {
                 "id": s.id,
@@ -378,6 +391,29 @@ def transcript(mid: str, db: Session = Depends(db_session), actor: str = Depends
             for s in ss
         ],
     }
+
+
+@app.patch("/api/meetings/{mid}/speakers")
+def rename_speaker(
+    mid: str,
+    body: SpeakerRename,
+    db: Session = Depends(db_session),
+    actor: str = Depends(require_actor),
+):
+    m = get_meeting(db, mid, actor)
+    if not db.scalar(
+        select(Segment.id).where(Segment.meeting_id == mid, Segment.speaker_id == body.speaker_id)
+    ):
+        raise HTTPException(404, "Speaker has no saved transcript in this meeting yet")
+    name = db.get(SpeakerName, (mid, body.speaker_id))
+    if name:
+        name.display_name = body.display_name
+    else:
+        db.add(SpeakerName(meeting_id=mid, **body.model_dump()))
+    m.revision += 1
+    audit(db, mid, actor, "speaker.renamed", body.model_dump())
+    db.commit()
+    return body.model_dump()
 
 
 @app.post("/api/meetings/{mid}/audio-chunks", status_code=201)
@@ -547,8 +583,8 @@ def jobs(mid: str, db: Session = Depends(db_session), actor: str = Depends(requi
             "status": j.status,
             "attempts": j.attempts,
             "error": j.error,
-            "run_after": j.run_after.replace(tzinfo=UTC) if j.run_after else None,
-            "lease_until": j.lease_until.replace(tzinfo=UTC) if j.lease_until else None,
+            "run_after": utc_time(j.run_after),
+            "lease_until": utc_time(j.lease_until),
             "completed_sections": len((j.checkpoint or {}).get("sections", {})),
             "retry_attempts": (j.checkpoint or {}).get("retry_count", 0),
         }
@@ -566,7 +602,7 @@ def get_mom(mid: str, db: Session = Depends(db_session), actor: str = Depends(re
         "status": mom.status,
         "data": stored_minutes(mom.data),
         "approved_by": mom.approved_by,
-        "updated_at": mom.updated_at,
+        "updated_at": utc_time(mom.updated_at),
     }
 
 
@@ -590,7 +626,7 @@ def revisions(mid: str, db: Session = Depends(db_session), actor: str = Depends(
             "id": r.id,
             "data": stored_minutes(r.data),
             "status": r.status,
-            "at": r.created_at,
+            "at": utc_time(r.created_at),
             "provenance": r.provenance,
         }
         for r in db.scalars(
@@ -706,7 +742,7 @@ def audits(mid: str, db: Session = Depends(db_session), actor: str = Depends(req
         select(AuditEvent).where(AuditEvent.meeting_id == mid).order_by(AuditEvent.created_at)
     ).all()
     return [
-        {"action": e.action, "at": e.created_at, "actor": e.actor, "detail": e.detail}
+        {"action": e.action, "at": utc_time(e.created_at), "actor": e.actor, "detail": e.detail}
         for e in events
     ]
 
@@ -770,10 +806,12 @@ def meeting_snapshot(
     latest_jobs = jobs(mid, db, actor)
     mom = db.get(Mom, mid)
     db.refresh(m)
+    saved_transcript = transcript(mid, db, actor)
     return {
         "id": mid,
         "meeting": view(m),
-        "segments": transcript(mid, db, actor)["segments"],
+        "segments": saved_transcript["segments"],
+        "speakerNames": saved_transcript["speaker_names"],
         "minutes": {
             "status": mom.status,
             "data": stored_minutes(mom.data),

@@ -2,6 +2,10 @@
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
 
 # Dependencies and generated files.
 .venv/
@@ -13,17 +17,31 @@ __pycache__/
 .ruff_cache/
 *.py[cod]
 *.tsbuildinfo
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+.nyc_output/
 
 # Local recordings, databases, and logs.
 /backend/data/
 *.db
 *.db-*
 *.sqlite
+*.sqlite-*
 *.sqlite3
 *.sqlite3-*
 *.db*.bak
 *.sqlite*.bak
 *.log
+*.wav
+*.webm
+*.mp3
+*.m4a
+*.ogg
+*.flac
+*.pcm
+*.mp4
 
 # Local archives and OS metadata.
 *.zip
@@ -35,3 +53,5 @@ Thumbs.db
 /output/
 
 .playwright-cli/
+playwright-report/
+test-results/

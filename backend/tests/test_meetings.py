@@ -20,6 +20,66 @@ def test_auth_and_consent(client, auth):
     assert r.status_code == 422
 
 
+def test_combined_meeting_audio_source_is_saved(client, auth):
+    response = client.post(
+        "/api/meetings",
+        headers=auth,
+        json={"title": "Teams meeting", "source": "meeting-audio", "consent_confirmed": True},
+    )
+    assert response.status_code == 201
+    mid = response.json()["id"]
+    assert client.get(f"/api/meetings/{mid}", headers=auth).json()["source"] == "meeting-audio"
+
+
+def test_history_timestamps_include_utc_timezone(client, auth):
+    from datetime import UTC, datetime, timedelta, timezone
+
+    from app.database import SessionLocal
+    from app.main import utc_time
+    from app.models import AuditEvent, Job, Meeting, Mom, MomRevision
+
+    stamp = datetime(2026, 10, 21, 7, 36, 27, tzinfo=UTC)
+    india = timezone(timedelta(hours=5, minutes=30))
+    assert utc_time(None) is None
+    assert utc_time(stamp.astimezone(india)) == stamp
+    mid = create(client, auth)
+    with SessionLocal() as db:
+        meeting = db.get(Meeting, mid)
+        meeting.created_at = meeting.started_at = meeting.ended_at = stamp
+        db.add(Mom(meeting_id=mid, data={}, updated_at=stamp))
+        db.add(
+            MomRevision(
+                meeting_id=mid, data={}, status="draft", actor="local-user", created_at=stamp
+            )
+        )
+        db.add(Job(meeting_id=mid, kind="generate_mom", run_after=stamp, lease_until=stamp))
+        db.add(AuditEvent(meeting_id=mid, actor="local-user", action="time.test", created_at=stamp))
+        db.commit()
+
+    meeting = client.get(f"/api/meetings/{mid}", headers=auth).json()
+    history = client.get("/api/meetings", headers=auth).json()[0]
+    minutes = client.get(f"/api/meetings/{mid}/mom", headers=auth).json()
+    revision = client.get(f"/api/meetings/{mid}/mom/revisions", headers=auth).json()[0]
+    job = client.get(f"/api/meetings/{mid}/jobs", headers=auth).json()[0]
+    events = client.get(f"/api/meetings/{mid}/audit", headers=auth).json()
+    event = next(e for e in events if e["action"] == "time.test")
+    for value in (
+        meeting["created_at"],
+        meeting["started_at"],
+        meeting["ended_at"],
+        history["created_at"],
+        minutes["updated_at"],
+        revision["at"],
+        job["run_after"],
+        job["lease_until"],
+        event["at"],
+    ):
+        parsed = datetime.fromisoformat(value)
+        assert parsed.tzinfo is not None, value
+        assert parsed == stamp
+        assert parsed.astimezone(india).strftime("%H:%M:%S") == "13:06:27"
+
+
 def test_lifecycle_transcript_idempotency(client, auth):
     mid = create(client, auth)
     assert client.post(f"/api/meetings/{mid}/start", headers=auth).status_code == 200

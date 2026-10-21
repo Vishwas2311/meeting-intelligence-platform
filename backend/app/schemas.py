@@ -7,7 +7,9 @@ class MeetingCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     title: str = Field(min_length=1, max_length=255)
     language: str = Field(default="en-IN", min_length=1, max_length=20)
-    source: Literal["microphone", "browser-tab", "desktop-agent", "teams-transcript"] = "microphone"
+    source: Literal[
+        "microphone", "browser-tab", "meeting-audio", "desktop-agent", "teams-transcript"
+    ] = "microphone"
     consent_confirmed: bool = False
 
 
@@ -36,6 +38,12 @@ class SegmentCreate(BaseModel):
 
 class SegmentBatch(BaseModel):
     segments: list[SegmentCreate] = Field(min_length=1, max_length=300)
+
+
+class SpeakerRename(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+    speaker_id: str = Field(min_length=1, max_length=100)
+    display_name: str = Field(min_length=1, max_length=100)
 
 
 Nonblank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20000)]

@@ -47,6 +47,13 @@ class Segment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
+class SpeakerName(Base):
+    __tablename__ = "speaker_names"
+    meeting_id: Mapped[str] = mapped_column(ForeignKey("meetings.id"), primary_key=True)
+    speaker_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(100))
+
+
 class AudioChunk(Base):
     __tablename__ = "audio_chunks"
     __table_args__ = (UniqueConstraint("meeting_id", "sequence", name="uq_audio_seq"),)

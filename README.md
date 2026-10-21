@@ -9,6 +9,7 @@ transcripts, generating LLM minutes, and reviewing, editing, and approving them.
 | ------------------------------------ | -------------------------------------------------------------- |
 | [Setup](docs/SETUP.md)               | Environment, startup, Docker, and development checks.          |
 | [Architecture](docs/ARCHITECTURE.md) | Implemented data flow, source layout, and current limitations. |
+| [Testing](docs/TESTING.md) | API, integration and UI examples, test commands, and live meeting checks. |
 
 Start with the setup guide. The app uses a frontend, API, and background worker;
 local defaults are http://localhost:5173 and http://127.0.0.1:8000.

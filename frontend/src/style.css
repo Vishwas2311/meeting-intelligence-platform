@@ -439,6 +439,46 @@ h1 {
   display: grid;
   gap: 13px;
 }
+.speaker-rename {
+  border: 0;
+  background: transparent;
+  color: #526984;
+  padding: 5px;
+  display: inline-flex;
+  border-radius: 4px;
+}
+.speaker-rename:hover {
+  background: #edf3fc;
+}
+.speaker-dialog {
+  border: 1px solid #dce5f2;
+  border-radius: 12px;
+  padding: 24px;
+  width: min(380px, calc(100vw - 32px));
+  color: #152d4c;
+}
+.speaker-dialog::backdrop {
+  background: #101e3680;
+}
+.speaker-dialog form {
+  display: grid;
+  gap: 16px;
+}
+.speaker-dialog label {
+  display: grid;
+  gap: 8px;
+}
+.speaker-dialog small {
+  color: #526984;
+}
+.speaker-dialog .buttons {
+  justify-content: flex-end;
+  margin: 0;
+}
+.speaker-dialog [role='alert'] {
+  color: #a63131;
+  font-size: 13px;
+}
 .new-form > label,
 .settings label {
   display: grid;
@@ -632,50 +672,54 @@ h3 {
   max-width: 1000px;
   margin: 0 auto;
 }
-.line {
+.transcript-entry {
   display: grid;
-  grid-template-columns: 66px minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 12px;
   padding: 20px 0;
-  border-bottom: 1px solid #f0f3f7;
 }
-.line:last-child {
-  border-bottom: 0;
-}
-.line time {
-  font-size: 10px;
-  font-family: ui-monospace, Consolas, monospace;
-  color: #718299;
-  padding-top: 3px;
-  font-variant-numeric: tabular-nums;
-}
-.line small {
-  font-size: 10px;
+.transcript-avatar {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
   color: #4b70a3;
-  font-weight: 600;
+  background: #edf3fb;
 }
-.line p {
+.transcript-entry-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+.transcript-entry-heading strong {
+  font-size: 13px;
+  font-weight: 650;
+  color: #253b59;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.transcript-entry-heading time {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  color: #526984;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.transcript-entry-body > p {
   margin-top: 5px;
   color: #253b59;
   font-size: 14px;
-  line-height: 1.85;
+  line-height: 1.8;
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
-.interim time {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
+.transcript-pending {
   color: #b62c43;
-  font-size: 9px;
-  font-weight: 650;
+  font-size: 11px;
 }
-.interim time .dot {
-  background: #dc3552;
-}
-.interim small {
-  color: #6a7d95;
-}
-.interim p {
+.interim .transcript-entry-body > p {
   color: #7c8da3;
   font-style: italic;
 }
@@ -1439,10 +1483,6 @@ h3 {
   .transcript {
     padding: 12px 16px;
   }
-  .line {
-    grid-template-columns: 56px minmax(0, 1fr);
-    gap: 12px;
-  }
   .footer-note {
     display: none;
   }
@@ -1556,11 +1596,15 @@ h3 {
   .transcript {
     padding: 12px 16px;
   }
-  .line {
-    grid-template-columns: 55px minmax(0, 1fr);
-    gap: 12px;
+  .transcript-entry {
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 10px;
   }
-  .line p {
+  .transcript-avatar {
+    width: 30px;
+    height: 30px;
+  }
+  .transcript-entry-body > p {
     font-size: 13px;
     line-height: 1.8;
   }

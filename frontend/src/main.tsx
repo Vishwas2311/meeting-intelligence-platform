@@ -51,10 +51,15 @@ import { usePolling } from './usePolling';
 import { Stopwatch, formatElapsed } from './stopwatch';
 import { speechOperation } from './speechOperation';
 import { createSpeechPreparation } from './speechPreparation';
+import { captureAudio } from './audioCapture';
+import type { AudioCapture } from './audioCapture';
 import type { CachedMeeting, Meeting, Segment, Job, Minutes, SpeechToken } from './types';
 import './style.css';
 import { MinutesReview } from './MinutesReview';
 import { StorageSettings } from './StorageSettings';
+import { TranscriptEntry } from './TranscriptEntry';
+import { scopedSpeaker, speakerLabels } from './speakers';
+import { SpeakerRenameDialog } from './SpeakerRenameDialog';
 type Tab = 'meeting' | 'history' | 'mom' | 'settings';
 function RecordingTimer({ clock, fallback }: { clock: Stopwatch; fallback: number }) {
   const [value, setValue] = useState(clock.read());
@@ -78,11 +83,15 @@ function App() {
     [meetings, setMeetings] = useState<Meeting[]>([]),
     [meeting, setMeeting] = useState<Meeting | null>(null),
     [title, setTitle] = useState('Team Discussion'),
-    [source, setSource] = useState('microphone'),
+    [source, setSource] = useState('meeting-audio'),
     [lang, setLang] = useState('en-IN'),
     [consent, setConsent] = useState(false),
     [segments, setSegments] = useState<Segment[]>([]),
+    [speakerNames, setSpeakerNames] = useState<Record<string, string>>({}),
+    [renamingSpeaker, setRenamingSpeaker] = useState<string | null>(null),
     [partial, setPartial] = useState(''),
+    [partialSpeaker, setPartialSpeaker] = useState<string | null>(null),
+    [partialStart, setPartialStart] = useState(0),
     [mom, setMom] = useState<Minutes | null>(null),
     [editMom, setEditMom] = useState(''),
     [jobs, setJobs] = useState<Job[]>([]),
@@ -120,12 +129,13 @@ function App() {
   const caching = useRef(false);
   const cacheQueue = useRef<Meeting[] | null>(null);
   const listRequest = useRef(0);
+  const minutesReadVersion = useRef(0);
   const pauseFlush = useRef<Promise<void>>(Promise.resolve());
   const flushed = useRef<(() => void) | null>(null);
   const clock = useRef(new Stopwatch());
   const transcriptRef = useRef<HTMLDivElement>(null);
   const captureAction = useRef(false);
-  const stoppingRecognition = useRef(new Set<SpeechSDK.SpeechRecognizer>());
+  const stoppingRecognition = useRef(new Set<SpeechSDK.ConversationTranscriber>());
   const [followLatest, setFollowLatest] = useState(true),
     [captureBusy, setCaptureBusy] = useState(false);
   useEffect(() => {
@@ -145,7 +155,8 @@ function App() {
       setCaptureBusy(false);
     }
   }
-  const recog = useRef<SpeechSDK.SpeechRecognizer | null>(null),
+  const recog = useRef<SpeechSDK.ConversationTranscriber | null>(null),
+    audioCapture = useRef<AudioCapture | null>(null),
     recorder = useRef<MediaRecorder | null>(null),
     media = useRef<MediaStream | null>(null),
     meetingRef = useRef<Meeting | null>(null),
@@ -163,6 +174,8 @@ function App() {
     lastTokenRefresh = useRef<ReturnType<typeof setInterval> | null>(null);
   const selected = meeting,
     momDirty = !!mom && editMom !== JSON.stringify(mom.data, null, 2);
+  const labels = useMemo(() => speakerLabels(segments, speakerNames), [segments, speakerNames]);
+  const renameSpeaker = !historyOffline && networkOnline ? setRenamingSpeaker : undefined;
   const dirty = useRef(momDirty);
   dirty.current = momDirty;
   usePolling(
@@ -175,7 +188,9 @@ function App() {
   }
   async function snapshot(m: Meeting): Promise<Omit<CachedMeeting, 'cachedAt'>> {
     const [transcript, latestJobs] = await Promise.all([
-      request<{ segments: Segment[] }>(`/api/meetings/${m.id}/transcript`),
+      request<{ segments: Segment[]; speaker_names: Record<string, string> }>(
+        `/api/meetings/${m.id}/transcript`,
+      ),
       request<Job[]>(`/api/meetings/${m.id}/jobs`),
     ]);
     // Read minutes after jobs so a completed job cannot leave an older draft on screen.
@@ -188,7 +203,14 @@ function App() {
       !latestJobs.some((j) => ['pending', 'running'].includes(j.status))
     )
       m = await request<Meeting>(`/api/meetings/${m.id}`);
-    return { id: m.id, meeting: m, segments: transcript.segments, minutes, jobs: latestJobs };
+    return {
+      id: m.id,
+      meeting: m,
+      segments: transcript.segments,
+      speakerNames: transcript.speaker_names || {},
+      minutes,
+      jobs: latestJobs,
+    };
   }
   async function keepSnapshot(value: Omit<CachedMeeting, 'cachedAt'>) {
     try {
@@ -214,6 +236,9 @@ function App() {
       setCaptureHealth('inactive');
       setStreamHealth('offline');
       setPartial('');
+      setPartialSpeaker(null);
+      setSpeakerNames({});
+      setRenamingSpeaker(null);
       setMom(null);
       setEditMom('');
       setJobs([]);
@@ -365,6 +390,7 @@ function App() {
       if (version !== selectionRequest.current) return null;
       current(value.meeting);
       setSegments(value.segments);
+      setSpeakerNames(value.speakerNames || {});
       if (!dirty.current) {
         setMom(value.minutes);
         setEditMom(value.minutes ? JSON.stringify(value.minutes.data, null, 2) : '');
@@ -372,7 +398,7 @@ function App() {
       setJobs(value.jobs);
       setHistoryOffline(true);
       setWarning('Showing the last saved copy. Connect the backend to synchronize changes.');
-      return value.meeting;
+      return value;
     }
     try {
       if (preferCached) {
@@ -382,6 +408,7 @@ function App() {
       const value = await snapshot(await request<Meeting>(`/api/meetings/${mid}`));
       if (version !== selectionRequest.current) return null;
       current(value.meeting);
+      setSpeakerNames(value.speakerNames || {});
       const queued = (await pendingSegments())
         .filter((s) => s.meetingId === mid)
         .map((s) => s.segment);
@@ -399,7 +426,7 @@ function App() {
       setHistoryOffline(false);
       clearConnectionWarning();
       await keepSnapshot(value);
-      return value.meeting;
+      return value;
     } catch (e: unknown) {
       if (canUseCache(e)) {
         try {
@@ -643,24 +670,26 @@ function App() {
       message(`Capture status could not reach the backend: ${errorMessage(e)}`);
     }
   }
-  async function chooseAudio(): Promise<MediaStream> {
-    if (source === 'microphone')
-      return navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
-      });
-    if (source === 'browser-tab') {
-      const capture = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-      const tracks = capture.getAudioTracks();
-      capture.getVideoTracks().forEach((t) => t.stop());
-      if (!tracks.length)
-        throw new Error(
-          'Shared tab/screen provided no audio. Share a supported tab with audio enabled.',
-        );
-      return new MediaStream(tracks);
-    }
-    throw new Error(
-      'Teams desktop audio needs an approved desktop agent; browser microphone cannot capture every remote participant.',
+  async function saveSpeakerName(name: string) {
+    const mid = meetingRef.current?.id;
+    const speakerId = renamingSpeaker;
+    if (!mid || !speakerId) throw new Error('Open a meeting and select a speaker first.');
+    await pendingWrites.current;
+    await pendingSync();
+    const saved = await request<{ speaker_id: string; display_name: string }>(
+      `/api/meetings/${mid}/speakers`,
+      'PATCH',
+      { speaker_id: speakerId, display_name: name },
     );
+    if (meetingRef.current?.id !== mid) return;
+    minutesReadVersion.current++;
+    setSpeakerNames((old) => ({ ...old, [saved.speaker_id]: saved.display_name }));
+    setNotice('Speaker name saved.');
+    try {
+      await keepSnapshot(await snapshot(meetingRef.current));
+    } catch {
+      message('Speaker name saved online. Refresh the meeting to update its offline copy.');
+    }
   }
   async function startStreaming(stream: MediaStream) {
     const generation = ++speechGeneration.current;
@@ -675,16 +704,27 @@ function App() {
       return;
     const config = speechsdk.SpeechConfig.fromAuthorizationToken(response.token, response.region);
     config.speechRecognitionLanguage = lang;
+    config.setProperty(
+      speechsdk.PropertyId.SpeechServiceResponse_DiarizeIntermediateResults,
+      'true',
+    );
     const capture = speechsdk.AudioConfig.fromStreamInput(stream);
-    const rec = new speechsdk.SpeechRecognizer(config, capture);
+    const rec = new speechsdk.ConversationTranscriber(config, capture);
+    // Azure guest IDs belong to one transcription session; reconnects must not inherit names.
+    const speakerSession = crypto.randomUUID();
     const timelineOffset = elapsedMs();
     const streamingMeetingId = meetingRef.current?.id;
     recog.current = rec;
-    rec.recognizing = (_s, e) => {
-      if (recog.current === rec && meetingRef.current?.id === streamingMeetingId)
+    rec.transcribing = (_s, e) => {
+      if (recog.current === rec && meetingRef.current?.id === streamingMeetingId) {
         setPartial(e.result.text || '');
+        setPartialSpeaker(scopedSpeaker(speakerSession, e.result.speakerId));
+        setPartialStart(
+          Math.max(0, Math.round(timelineOffset + Number(e.result.offset || 0) / 10000)),
+        );
+      }
     };
-    rec.recognized = (_s, e) => {
+    rec.transcribed = (_s, e) => {
       if (
         meetingRef.current?.id !== streamingMeetingId ||
         (recog.current !== rec && !stoppingRecognition.current.has(rec))
@@ -693,6 +733,7 @@ function App() {
       if (e.result.reason !== speechsdk.ResultReason.RecognizedSpeech || !e.result.text?.trim())
         return;
       setPartial('');
+      setPartialSpeaker(null);
       const mid = meetingRef.current?.id;
       if (!mid) return;
       const offset = Number(e.result.offset || 0) / 10000;
@@ -703,6 +744,7 @@ function App() {
         start_ms: Math.max(0, Math.round(timelineOffset + offset)),
         end_ms: Math.max(0, Math.round(timelineOffset + offset + duration)),
         source: 'live',
+        speaker_id: scopedSpeaker(speakerSession, e.result.speakerId),
       };
       pendingWrites.current = pendingWrites.current
         .then(async () => {
@@ -761,7 +803,7 @@ function App() {
     };
     try {
       await speechOperation(
-        (success, failure) => rec.startContinuousRecognitionAsync(success, failure),
+        (success, failure) => rec.startTranscribingAsync(success, failure),
         15000,
       );
     } catch (error) {
@@ -813,7 +855,7 @@ function App() {
         /* The device may already have stopped. */
       }
     }
-    media.current?.getTracks().forEach((track) => track.stop());
+    audioCapture.current?.stop();
     void status('lost', 'disconnected', true);
     void stopRecognition().catch(() => {});
   }
@@ -901,10 +943,12 @@ function App() {
     }
     setWarning('');
     setNotice('');
-    let stream: MediaStream | null = null;
+    let capture: AudioCapture | null = null;
     let created: Meeting | null = null;
     try {
-      stream = await chooseAudio();
+      capture = await captureAudio(source);
+      const stream = capture.stream;
+      audioCapture.current = capture;
       const storage = await request<{ low_disk: boolean; disk_free_bytes: number }>('/api/storage');
       if (storage.disk_free_bytes < 100 * 1024 * 1024)
         throw new Error(
@@ -920,7 +964,7 @@ function App() {
       });
       created = m;
       current(m);
-      await request(`/api/meetings/${m.id}/start`, 'POST');
+      current(await request<Meeting>(`/api/meetings/${m.id}/start`, 'POST'));
       storageFailed.current = false;
       stopRequested.current = false;
       reconnectAttempts.current = 0;
@@ -939,22 +983,23 @@ function App() {
         pauses: [],
       });
       media.current = stream;
-      stream.getAudioTracks().forEach(
-        (t) =>
-          (t.onended = () => {
-            failCapture(
-              'lost',
-              'Audio capture ended unexpectedly. No new audio is being recorded. The session is incomplete.',
-            );
-          }),
-      );
+      capture.onEnded = () => {
+        if (media.current !== stream) return;
+        failCapture(
+          'lost',
+          'Audio capture ended unexpectedly. The microphone or meeting audio was disconnected. No new audio is being recorded. The session is incomplete.',
+        );
+      };
+      if (stream.getAudioTracks().some((track) => track.readyState !== 'live'))
+        throw new Error('An audio source ended before recording started. Retry Start Meeting.');
       startedAt.current = performance.now();
       startRecorder(stream);
       void status('active', 'reconnecting');
       connectTranscription(stream);
       setNotice('Meeting started. Verify audio source is capturing all intended participants.');
     } catch (e: unknown) {
-      stream?.getTracks().forEach((t) => t.stop());
+      capture?.stop();
+      audioCapture.current = null;
       media.current = null;
       recorder.current = null;
       clock.current.pause();
@@ -978,11 +1023,12 @@ function App() {
     lastTokenRefresh.current = null;
     const r = recog.current;
     recog.current = null;
+    setPartial('');
     if (r) {
       stoppingRecognition.current.add(r);
       try {
         await speechOperation(
-          (success, failure) => r.stopContinuousRecognitionAsync(success, failure),
+          (success, failure) => r.stopTranscribingAsync(success, failure),
           5000,
         );
       } finally {
@@ -1118,7 +1164,8 @@ function App() {
         finished();
       }
     });
-    media.current?.getTracks().forEach((t) => t.stop());
+    audioCapture.current?.stop();
+    audioCapture.current = null;
     media.current = null;
     setStreamHealth('stopped');
     setCaptureHealth('stopped');
@@ -1170,10 +1217,25 @@ function App() {
   }
   async function generate() {
     if (!selected) return;
+    if (mom && mom.status !== 'outdated') {
+      setTab('mom');
+      return;
+    }
     setWarning('');
     setNotice('');
     setGenerateBusy(true);
     try {
+      const saved = await request<Minutes>(`/api/meetings/${selected.id}/mom`).catch((error) => {
+        if (error instanceof ApiError && error.status === 404) return null;
+        throw error;
+      });
+      if (saved && saved.status !== 'outdated') {
+        if (meetingRef.current?.id !== selected.id) return;
+        setMom(saved);
+        if (!dirty.current) setEditMom(JSON.stringify(saved.data, null, 2));
+        setTab('mom');
+        return;
+      }
       await pendingWrites.current;
       await pendingSync();
       const audio = (await pendingChunks()).filter((item) => item.meetingId === selected.id);
@@ -1246,9 +1308,10 @@ function App() {
     if (!meetingRef.current || momLoading.current) return;
     momLoading.current = true;
     const mid = meetingRef.current.id;
+    const readVersion = minutesReadVersion.current;
     try {
       const value = await snapshot(await request<Meeting>(`/api/meetings/${mid}`));
-      if (meetingRef.current?.id !== mid) return;
+      if (meetingRef.current?.id !== mid || readVersion !== minutesReadVersion.current) return;
       current(value.meeting);
       if (!dirty.current || value.minutes) setMom(value.minutes);
       if (!dirty.current) {
@@ -1261,6 +1324,7 @@ function App() {
           : null,
       );
       if (!media.current) setSegments(value.segments);
+      setSpeakerNames(value.speakerNames || {});
       const readiness = await request<{ worker: boolean }>('/api/ready').catch(() => null);
       if (readiness) setWorkerReady(readiness.worker);
       setHistoryOffline(false);
@@ -1276,6 +1340,7 @@ function App() {
         );
       await keepSnapshot(value);
     } catch (error) {
+      if (meetingRef.current?.id !== mid || readVersion !== minutesReadVersion.current) return;
       if (canUseCache(error)) setHistoryOffline(true);
       message(`Could not refresh minutes: ${errorMessage(error)}. Your current draft was kept.`);
     } finally {
@@ -1290,6 +1355,7 @@ function App() {
       const parsed = JSON.parse(editMom);
       const m = await request<Minutes>(`/api/meetings/${selected.id}/mom`, 'PATCH', parsed);
       if (meetingRef.current?.id !== selected.id) return;
+      minutesReadVersion.current++;
       setMom(m);
       setEditMom(JSON.stringify(m.data, null, 2));
       setNotice('MoM draft saved.');
@@ -1309,6 +1375,8 @@ function App() {
     try {
       await request(`/api/meetings/${selected.id}/mom/approve`, 'POST', { approved: true });
       if (meetingRef.current?.id !== selected.id) return;
+      minutesReadVersion.current++;
+      setMom((old) => (old ? { ...old, status: 'approved' } : old));
       await loadMom();
       setNotice('MoM approved.');
     } catch (e: unknown) {
@@ -1353,11 +1421,16 @@ function App() {
     0,
   );
   const sourceLabel = (value: string) =>
-    value === 'microphone'
-      ? 'Microphone'
-      : value === 'browser-tab'
-        ? 'Shared tab audio'
-        : 'Desktop agent';
+    value === 'meeting-audio'
+      ? 'Microphone + meeting audio'
+      : value === 'microphone'
+        ? 'Microphone'
+        : value === 'browser-tab'
+          ? 'Shared tab audio'
+          : 'Desktop agent';
+  const processingJobs = jobs.filter(
+    (job) => ['pending', 'running'].includes(job.status) || (!mom && job.status === 'failed'),
+  );
 
   return (
     <div className={tab === 'mom' ? 'app minutes-app' : 'app'}>
@@ -1461,11 +1534,7 @@ function App() {
                   <h2 title={selected?.title || 'New meeting'}>
                     {selected?.title || 'New meeting'}
                   </h2>
-                  <span className="sub">
-                    {selected
-                      ? `Session ${selected.id.slice(0, 8)}`
-                      : 'Set up your next conversation'}
-                  </span>
+                  {!selected && <span className="sub">Set up your next conversation</span>}
                   <div className="timer-block">
                     <span className="label">
                       {historicDuration ? 'SESSION DURATION (INCLUDING PAUSES)' : 'RECORDING TIME'}
@@ -1523,10 +1592,10 @@ function App() {
                         <button
                           className="primary"
                           disabled={generateBusy || captureBusy}
-                          onClick={generate}
+                          onClick={mom ? () => setTab('mom') : generate}
                         >
                           <FileText size={16} />
-                          {generateBusy ? 'Queuing…' : 'Generate MoM'}
+                          {mom ? 'View saved minutes' : generateBusy ? 'Queuing…' : 'Generate MoM'}
                         </button>
                         <button
                           className="secondary"
@@ -1571,9 +1640,18 @@ function App() {
                       </label>
                       <label>
                         Audio source
-                        <select value={source} onChange={(e) => setSource(e.target.value)}>
-                          <option value="microphone">Microphone / in-person</option>
-                          <option value="browser-tab">Browser tab / screen audio</option>
+                        <select
+                          aria-label="Audio source"
+                          value={source}
+                          onChange={(e) => setSource(e.target.value)}
+                        >
+                          <option value="meeting-audio">
+                            Online meeting: microphone + meeting audio
+                          </option>
+                          <option value="microphone">In-person: microphone only</option>
+                          <option value="browser-tab">
+                            Shared audio only (without my microphone)
+                          </option>
                           <option value="desktop-agent" disabled>
                             Desktop agent — coming soon
                           </option>
@@ -1745,25 +1823,29 @@ function App() {
                   ) : (
                     <div className="transcript-lines">
                       {segments.map((s, i) => (
-                        <article className="line" key={s.client_event_id || i}>
-                          <time>{formatElapsed(s.start_ms)}</time>
-                          <div>
-                            <small>{s.speaker_id || 'Speaker not identified'}</small>
-                            <p>{s.text}</p>
-                          </div>
-                        </article>
+                        <TranscriptEntry
+                          key={s.client_event_id || i}
+                          segment={s}
+                          speakerLabel={s.speaker_id ? labels[s.speaker_id] : undefined}
+                          onRename={renameSpeaker}
+                        />
                       ))}
                       {partial && (
-                        <div className="line interim">
-                          <time>
-                            <span className="dot" />
-                            LIVE
-                          </time>
-                          <div>
-                            <small>Recognizing…</small>
-                            <p>{partial}</p>
-                          </div>
-                        </div>
+                        <TranscriptEntry
+                          pending
+                          segment={{
+                            client_event_id: 'interim',
+                            text: partial,
+                            start_ms: partialStart,
+                            end_ms: partialStart,
+                            speaker_id: partialSpeaker,
+                          }}
+                          speakerLabel={
+                            partialSpeaker
+                              ? labels[partialSpeaker] || 'Identifying speaker…'
+                              : undefined
+                          }
+                        />
                       )}
                     </div>
                   )}
@@ -1855,7 +1937,7 @@ function App() {
                           return;
                         }
                         const loaded = await refresh(m.id, historyOffline);
-                        if (loaded) setTab('meeting');
+                        if (loaded) setTab(loaded.minutes && !media.current ? 'mom' : 'meeting');
                       }}
                     >
                       <span className="meeting-row-icon">
@@ -1870,7 +1952,11 @@ function App() {
                             : m.id.slice(0, 8)}
                         </small>
                       </div>
-                      <span className="pill">{m.status}</span>
+                      <span className="pill">
+                        {m.status === 'ready_review'
+                          ? 'Minutes saved'
+                          : m.status.replaceAll('_', ' ')}
+                      </span>
                       <ChevronRight size={17} />
                     </button>
                   ))
@@ -1926,6 +2012,8 @@ function App() {
                         onChange={setEditMom}
                         readOnly={['approved', 'outdated'].includes(mom.status) || historyOffline}
                         segments={segments}
+                        speakerLabels={labels}
+                        onRenameSpeaker={renameSpeaker}
                         meetingId={selected.id}
                         onViewingVersionChange={setReviewingVersion}
                         status={mom.status}
@@ -2056,7 +2144,7 @@ function App() {
                         )}
                     </div>
                   )}
-                  {(!mom || jobs.some((j) => ['pending', 'running'].includes(j.status))) && (
+                  {processingJobs.length > 0 && (
                     <details
                       className="jobs minutes-jobs"
                       open={
@@ -2078,26 +2166,22 @@ function App() {
                             Worker is unavailable or restarting. Your queued work is saved.
                           </p>
                         )}
-                      {jobs.length ? (
-                        jobs.map((j) => (
-                          <div key={j.id}>
-                            <span>
-                              {j.kind} — {j.status}
-                            </span>
-                            <small>
-                              {j.status === 'pending' && j.run_after
-                                ? `Retry ${(j.retry_attempts ?? j.attempts) + 1} of 3 scheduled for ${new Date(j.run_after).toLocaleTimeString()}. `
-                                : ''}
-                              {j.error || `Attempts: ${j.attempts}`}{' '}
-                              {j.completed_sections
-                                ? ` · ${j.completed_sections} completed stages saved`
-                                : ''}
-                            </small>
-                          </div>
-                        ))
-                      ) : (
-                        <small>No background jobs yet.</small>
-                      )}
+                      {processingJobs.map((j) => (
+                        <div key={j.id}>
+                          <span>
+                            {j.kind} — {j.status}
+                          </span>
+                          <small>
+                            {j.status === 'pending' && j.run_after
+                              ? `Retry ${(j.retry_attempts ?? j.attempts) + 1} of 3 scheduled for ${new Date(j.run_after).toLocaleTimeString()}. `
+                              : ''}
+                            {j.error || `Attempts: ${j.attempts}`}{' '}
+                            {j.completed_sections
+                              ? ` · ${j.completed_sections} completed stages saved`
+                              : ''}
+                          </small>
+                        </div>
+                      ))}
                     </details>
                   )}
                 </>
@@ -2216,6 +2300,14 @@ function App() {
             </span>
           )}
         </footer>
+        {renamingSpeaker && (
+          <SpeakerRenameDialog
+            key={renamingSpeaker}
+            label={labels[renamingSpeaker] || 'Speaker'}
+            onSave={saveSpeakerName}
+            onClose={() => setRenamingSpeaker(null)}
+          />
+        )}
       </div>
     </div>
   );

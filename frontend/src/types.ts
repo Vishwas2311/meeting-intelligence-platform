@@ -39,6 +39,7 @@ export interface CachedMeeting {
   id: string;
   meeting: Meeting;
   segments: Segment[];
+  speakerNames?: Record<string, string>;
   minutes: Minutes | null;
   jobs: Job[];
   cachedAt: string;
