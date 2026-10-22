@@ -1,0 +1,27 @@
+# SQLite default; external Oracle uses DATABASE_URL=oracle and ORACLE_* in .env.
+services:
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: ${CONTAINER_DATABASE_URL:-sqlite:////srv/service/var/meeting_intelligence.db}
+      STORAGE_DIR: /srv/service/var/audio
+    ports: ["127.0.0.1:8100:8100"]
+    volumes: ["service-data:/srv/service/var"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/api/health')"]
+      interval: 10s
+      retries: 12
+  worker:
+    build: .
+    command: ["python", "-m", "app.worker"]
+    env_file: .env
+    environment:
+      DATABASE_URL: ${CONTAINER_DATABASE_URL:-sqlite:////srv/service/var/meeting_intelligence.db}
+      STORAGE_DIR: /srv/service/var/audio
+    volumes: ["service-data:/srv/service/var"]
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  service-data:

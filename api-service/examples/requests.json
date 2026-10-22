@@ -1,0 +1,85 @@
+{
+  "meeting_create": {
+    "title": "Delivery planning",
+    "language": "auto",
+    "source": "meeting-audio",
+    "consent_confirmed": true
+  },
+  "segments": {
+    "segments": [
+      {
+        "client_event_id": "capture-session-01:phrase-01",
+        "text": "We agreed to review the delivery plan on Friday.",
+        "start_ms": 0,
+        "end_ms": 4800,
+        "speaker_id": "live:capture-session-01:Guest-1",
+        "source": "live"
+      },
+      {
+        "client_event_id": "capture-session-01:phrase-02",
+        "text": "I will prepare the draft before the review.",
+        "start_ms": 7200,
+        "end_ms": 11900,
+        "speaker_id": "live:capture-session-01:Guest-2",
+        "source": "live"
+      }
+    ]
+  },
+  "manifest": {
+    "expected_chunks": 2,
+    "recorded_through_ms": 12000,
+    "finalized": true,
+    "pauses": [
+      {
+        "start_ms": 5000,
+        "end_ms": 7000
+      }
+    ]
+  },
+  "capture_status": {
+    "capture_status": "stopped",
+    "stt_status": "disconnected",
+    "sync_status": "synced",
+    "transcript_incomplete": false
+  },
+  "speaker_rename": {
+    "speaker_id": "live:capture-session-01:Guest-1",
+    "display_name": "Alex"
+  },
+  "notes_create": {
+    "id": "e2eb0e86-92c0-4df2-9d71-5b7699d31a04",
+    "title": "Delivery planning notes",
+    "language": "auto",
+    "meeting_date": "2026-10-21",
+    "participants": [
+      "Alex",
+      "Sam"
+    ]
+  },
+  "notes_patch": {
+    "notes": "We discussed the delivery plan. Alex will prepare a draft before Friday's review.",
+    "reviewed": false,
+    "revision": 0
+  },
+  "minutes_edit": {
+    "expected_revision": 1,
+    "data": {
+      "title": "Delivery planning",
+      "summary": "The team discussed delivery planning.",
+      "discussion_points": [],
+      "decisions": [],
+      "action_items": [],
+      "risks": [],
+      "unanswered_questions": [],
+      "transcript_gaps": [],
+      "requires_review": true
+    }
+  },
+  "minutes_approve": {
+    "approved": true,
+    "expected_revision": 2
+  },
+  "minutes_revise": {
+    "expected_revision": 3
+  }
+}

@@ -1,0 +1,31 @@
+name: Backend API service checks
+on: [push, pull_request]
+permissions: {contents: read}
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run: {working-directory: api-service}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: python -m venv .venv
+      - run: .venv/bin/python -m pip install -r requirements-dev.txt
+      - run: .venv/bin/python scripts/verify_release.py --backend-only
+      - run: .venv/bin/python scripts/check_api_contract.py
+      - run: .venv/bin/python -m scripts.audit_dependencies --backend-only
+      - run: .venv/bin/python scripts/check_deploy_template.py
+      - run: .venv/bin/python scripts/smoke_http.py
+      - run: docker build -t meeting-api-backend:test .
+      - run: docker build -f deploy/Dockerfile.gateway -t meeting-api-gateway:test .
+      - run: .venv/bin/python scripts/smoke_gateway.py
+      - run: .venv/bin/python scripts/build_handover.py --backend-only
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-api-evidence
+          path: |
+            api-service/output/implementation/
+            api-service/dist/meeting-intelligence-backend.zip
+          retention-days: 14

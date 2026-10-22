@@ -1,0 +1,81 @@
+# One application VM; Oracle is the company-managed external database.
+name: meeting-intelligence-api
+x-runtime: &runtime
+  image: ${BACKEND_IMAGE:?Set a backend image digest}
+  env_file: ${PRODUCTION_ENV_FILE:-./api.env}
+  restart: unless-stopped
+  init: true
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  mem_limit: 2g
+  cpus: 2
+  stop_grace_period: 210s
+  logging:
+    driver: json-file
+    options: {max-size: "20m", max-file: "5"}
+  tmpfs: ["/tmp:size=1g,mode=1777"]
+  volumes:
+    - type: bind
+      source: ${AUDIO_VOLUME:?Set persistent audio mount path}
+      target: /data/audio
+      bind: {create_host_path: false}
+    - type: bind
+      source: ${SECRET_DIRECTORY:?Set read-only secret directory}
+      target: /run/secrets
+      read_only: true
+      bind: {create_host_path: false}
+  networks: [application]
+services:
+  api:
+    <<: *runtime
+    ports: ["127.0.0.1:18100:8100"] # Host-local authorized monitoring agent only.
+    command: [uvicorn, app.main:app, --host, "0.0.0.0", --port, "8100", --no-access-log, --no-proxy-headers, --limit-concurrency, "200", --timeout-keep-alive, "5", --timeout-graceful-shutdown, "200"]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/api/ready',timeout=5)"]
+      interval: 15s
+      timeout: 8s
+      retries: 3
+      start_period: 40s
+  worker:
+    <<: *runtime
+    command: [python, -m, app.worker]
+    environment: {WORKER_ID: launch-worker-1, DB_POOL_SIZE: "2", DB_MAX_OVERFLOW: "0"}
+    healthcheck:
+      test: [CMD, python, -m, scripts.worker_healthcheck]
+      interval: 20s
+      timeout: 8s
+      retries: 3
+      start_period: 40s
+  gateway:
+    image: ${GATEWAY_IMAGE:?Set an API-only gateway image digest}
+    restart: unless-stopped
+    init: true
+    user: "101:101"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1
+    ports: ["443:8443"]
+    tmpfs: ["/tmp:size=512m,mode=1777"]
+    volumes:
+      - type: bind
+        source: ${TLS_DIRECTORY:?Set TLS certificate directory}
+        target: /etc/meeting-tls
+        read_only: true
+        bind: {create_host_path: false}
+    healthcheck:
+      test: [CMD, wget, -q, --no-check-certificate, -O, /dev/null, "https://127.0.0.1:8443/gateway-health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+    networks: [application]
+networks:
+  application: {}

@@ -1,0 +1,48 @@
+groups:
+  - name: meeting-production
+    rules:
+      - alert: MeetingOrdinaryApiSlow
+        expr: histogram_quantile(0.95, sum(rate(meeting_http_duration_seconds_bucket{route!~".*(/audio-chunks|/audio|/mom/generate)$"}[5m])) by (route, le)) > 0.5
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Ordinary API route p95 exceeds 500ms; inspect admission, locks and host saturation"}
+      - alert: MeetingAdmissionSlow
+        expr: histogram_quantile(0.95, sum(rate(meeting_admission_duration_seconds_bucket[5m])) by (le)) > 0.05
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Shared admission p95 exceeds 50ms; inspect DB pool, locks, commits and host load"}
+      - alert: MeetingRateCleanupBacklog
+        expr: meeting_expired_rate_buckets > 5000
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Expired rate counters are accumulating; check maintenance and database availability"}
+      - alert: MeetingApiDown
+        expr: up{job="meeting-api"} == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "Meeting API scrape unavailable; check VM, token, network and DB", runbook: "incident-runbooks.md#api-or-vm-unavailable"}
+      - alert: MeetingWorkerMissing
+        expr: meeting_live_workers < 1
+        for: 1m
+        labels: {severity: critical}
+        annotations: {summary: "No fresh processing worker", runbook: "incident-runbooks.md#worker-or-provider-unavailable"}
+      - alert: MeetingQueueDelayed
+        expr: meeting_oldest_runnable_job_seconds > 60
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Runnable processing queue is delayed", runbook: "incident-runbooks.md#worker-or-provider-unavailable"}
+      - alert: MeetingHttpErrors
+        expr: sum(rate(meeting_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(meeting_http_requests_total[5m])), 0.01) > 0.005
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Unexpected HTTP errors exceed 0.5%", runbook: "incident-runbooks.md#api-or-vm-unavailable"}
+      - alert: MeetingLowAudioSpace
+        expr: meeting_storage_free_bytes < 1073741824
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "Less than 1 GiB audio capacity remains", runbook: "incident-runbooks.md#audio-volume-or-space"}
+      - alert: MeetingAuthenticationDenials
+        expr: sum(rate(meeting_http_requests_total{status=~"401|403"}[5m])) > 2
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "Sustained authentication/authorization denials", runbook: "incident-runbooks.md#identity-or-key-incident"}

@@ -1,0 +1,19 @@
+-c requirements.lock
+-c requirements.linux.lock
+fastapi==0.143.2
+uvicorn[standard]==0.54.0
+sqlalchemy==2.1.4
+pydantic==2.14.1
+pydantic-settings==2.16.0
+httpx==0.28.1
+# HTTPcore probes this on every async request; current AnyIO no longer installs it.
+sniffio==1.3.1
+python-multipart==0.0.32
+psycopg[binary]==3.3.6
+imageio-ffmpeg==0.6.0
+PyJWT[crypto]==2.15.1
+oracledb==26.0.1
+
+alembic==1.20.1
+prometheus-client==0.26.0
+cryptography==50.0.2

@@ -1,0 +1,7 @@
+# Load testing
+
+Use [PERF-01 through PERF-06](../docs/QUALIFICATION_TEST_PLAN.md) for Oracle qualification and acceptance. The existing k6 `scenario.js` requires APPROVED_TEST_TARGET=true, BASE_URL, USERS=100 and an absolute protected IDENTITY_FILE with distinct per-user tokens. Keep credentials outside Git and renew during long runs. Validate operation tags/thresholds and add test-only wrappers for explicit polling, finish bursts, valid encoded media and invariant reconciliation; the starter harness alone is not a production certificate.
+
+Nominal launch: 10min ramp/30min hold and separate 2h soak; ordinary/poll p95 <500ms, ordinary p99 <1.5s, queue ACK p95 <1s, upload p95 <2s, unexpected errors <0.5%, zero lost acknowledged work/owner leaks/approval corruption and stable queue/resource budgets. Do not run competing loads, security scans or backups on the acceptance host. Real providers need approved spend caps and valid encoded audio; script placeholder bytes test durable ingest only.
+
+`local_smoke.py` deliberately uses disposable SQLite and synthetic providers; it cannot certify Oracle. Use --output-dir to preserve comparisons. Optional --sqlite-journal wal is a disposable diagnostic with FULL synchronous, never a developer/production DB change. Capture client/server/transport/admission queue timing and generator saturation; classify failed runs honestly. `invariants.py` checks a restricted expected ledger against the authenticated test API; do not commit its tokens.
