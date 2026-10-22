@@ -23,7 +23,7 @@ def build():
         and name not in {"api-service/tests/ui_bridge.py", "api-service/tests/ui_server.py"}
     ]
     assert names, "Stage the reviewed source files before creating a handover"
-    output = ROOT / "dist/meeting-intelligence-backend.zip"
+    output = ROOT / "dist/handoff-api-service-package.zip"
     output.parent.mkdir(exist_ok=True)
     hashes = {}
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -55,6 +55,23 @@ def build():
             entry.external_attr = (0o100755 if name == ".githooks/pre-commit" else 0o100644) << 16
             entry.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(entry, data)
+        metadata = {
+            "package": "handoff-api-service-package",
+            "source_commit": subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=repository, text=True
+            ).strip(),
+            "working_tree_modified": bool(
+                subprocess.check_output(
+                    ["git", "status", "--porcelain"], cwd=repository, text=True
+                ).strip()
+            ),
+            "scope": "API and worker only; no UI, credentials or local meeting data",
+            "production_database": "Oracle",
+            "production_qualified": False,
+        }
+        metadata_bytes = (json.dumps(metadata, indent=2) + "\n").encode()
+        archive.writestr("HANDOVER_METADATA.json", metadata_bytes)
+        hashes["HANDOVER_METADATA.json"] = hashlib.sha256(metadata_bytes).hexdigest()
         archive.writestr("HANDOVER_SHA256.json", json.dumps(hashes, indent=2) + "\n")
     with zipfile.ZipFile(output) as archive:
         assert archive.testzip() is None
@@ -62,6 +79,8 @@ def build():
             hashlib.sha256(archive.read(name)).hexdigest() == value
             for name, value in hashes.items()
         )
+    checksum = hashlib.sha256(output.read_bytes()).hexdigest()
+    output.with_suffix(".sha256").write_text(f"{checksum}  {output.name}\n", encoding="utf-8")
     print(f"Created {output.name}: {len(hashes)} tracked source files; no local data or secrets")
 
 

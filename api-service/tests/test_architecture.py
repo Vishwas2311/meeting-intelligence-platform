@@ -358,22 +358,3 @@ def test_opt_in_retention_protects_history_and_leaves_text_usable(client, auth, 
         assert db.get(Mom, mid).data["summary"] == "Verified original"
         assert require_complete_audio(db, mid)["audio_capture_claimed_complete"] is False
     assert client.get(f"/api/meetings/{mid}/transcript", headers=auth).json()["segments"]
-
-
-def test_local_launcher_refuses_missing_node(monkeypatch):
-    from scripts import run_local_ui
-
-    monkeypatch.setenv("NODE_EXE", "missing-node-executable")
-    with pytest.raises(SystemExit, match="Install Node.js"):
-        run_local_ui.main()
-
-
-def test_local_launcher_refuses_missing_package_environment(monkeypatch, tmp_path):
-    import sys
-
-    from scripts import run_local_ui
-
-    monkeypatch.setenv("NODE_EXE", sys.executable)
-    monkeypatch.setattr(run_local_ui, "ROOT", tmp_path)
-    with pytest.raises(SystemExit, match="Create api-service/.env"):
-        run_local_ui.main()

@@ -1,11 +1,12 @@
-# Meeting Intelligence API service
+# Meeting Intelligence - API service handoff
 
-API-service delivery branch with a separate, optional React testing UI for company-laptop use. Production delivers the Python/FastAPI API and independent worker with Oracle persistence. No Redis is required.
+Backend-only package for manager, Infrastructure, DBA and Consumer Integration handoff. Includes the Python/FastAPI API, independent worker, Oracle schema setup, API contract, production configuration and backend tests. **No React UI, Node installation, local data or secrets are included. No Redis is required.**
+
+Start with the [manager/team handoff](HANDOFF.md), [service setup](api-service/README.md), [production deployment](api-service/deploy/README.md) and [qualification plan](api-service/docs/QUALIFICATION_TEST_PLAN.md).
 
 | Folder | Purpose |
 | --- | --- |
 | `api-service/app/` | API and background worker runtime |
-| `api-service/frontend/` | Existing testing UI source, with its own package/lockfile and [laptop instructions](https://github.com/Vishwas2311/meeting-intelligence-platform/blob/api-service-delivery/api-service/frontend/README.md) |
 | `api-service/migrations/` | Database schema setup/versioning, including a fresh Oracle database; no SQLite data transfer |
 | `api-service/load/` | Performance qualification tools |
 | `api-service/examples/` | API consumer examples |
@@ -14,14 +15,14 @@ API-service delivery branch with a separate, optional React testing UI for compa
 Clone this branch on your laptop:
 
 ```text
-git clone --branch api-service-delivery --single-branch https://github.com/Vishwas2311/meeting-intelligence-platform.git
-cd meeting-intelligence-platform
+git clone --branch handoff-api-service-package --single-branch https://github.com/Vishwas2311/meeting-intelligence-platform.git meeting-intelligence-api-handoff
+cd meeting-intelligence-api-handoff
 ```
 
-For local UI use, follow the [testing UI README](https://github.com/Vishwas2311/meeting-intelligence-platform/blob/api-service-delivery/api-service/frontend/README.md). UI files are copied from the existing application; no new UI/API integration or feature changes are introduced. The local UI expects the API on the same laptop. It is not configured to connect directly to a hosted company API.
+Alternatively use GitHub **Code > Download ZIP** on this branch. GitHub's source ZIP contains the reviewed source tree. The separately built `handoff-api-service-package.zip` adds source-commit metadata and per-file checksums, with a `.sha256` file for the whole ZIP. Both exclude the UI.
 
-Production Docker images, Compose services, CI checks and the backend handover ZIP remain API-only. The UI is source for local testing, not an additional production application. Backend deployment does not require Node.js. Use a Git clone or GitHub source download to obtain the optional UI; the backend ZIP deliberately excludes it.
+Production needs an application host, Oracle, persistent audio storage, HTTPS, protected secrets, approved identities/providers, monitoring and recovery. A Linux physical server or VM can use the supplied Docker recipe; another container platform requires validated deployment configuration. This source package does not provision infrastructure or deploy automatically. The original UI remains on `api-service-delivery`, which stays the repository default.
 
 Start with [service setup](api-service/README.md), [production deployment](api-service/deploy/README.md), [API contract](api-service/docs/guides/API_CONTRACT.md), [readiness](api-service/docs/READINESS.md) and [qualification tests](api-service/docs/QUALIFICATION_TEST_PLAN.md).
 
-This is a GO WITH CHANGES integration candidate, not a production-approved release. The last full backend runs passed 241 tests with two Oracle skips on Windows and Linux; the current source still requires real Oracle/load/UAT/security/operations acceptance. No production data, secrets, generated evidence, archives, installed dependencies or design assets are included.
+**82/100: GO WITH CHANGES for integration handoff, not production approved.** Actual Oracle, load, identities/providers, security, monitoring and restore still require environment acceptance. CI success does not close those gates. No production data, secrets, installed dependencies, diagrams, archived reports or UI source are included.
