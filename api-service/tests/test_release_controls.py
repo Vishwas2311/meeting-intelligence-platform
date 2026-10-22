@@ -4,6 +4,30 @@ from datetime import timedelta
 import pytest
 
 
+def test_gateway_smoke_mounts_traversable_certificates_without_environment(monkeypatch):
+    from pathlib import Path
+
+    from scripts import smoke_web
+
+    class MountChecked(Exception):
+        pass
+
+    def inspect_command(args, *positional, **kwargs):
+        if args[0] == "run" and "--mount" in args:
+            mount = args[args.index("--mount") + 1]
+            tls = Path(mount.split("source=", 1)[1].split(",target=", 1)[0])
+            assert tls.stat().st_mode & 0o005 == 0o005
+            assert {p.name for p in tls.iterdir()} == {"privkey.pem", "fullchain.pem"}
+            assert (tls.parent / "test.env").is_file()
+            assert not (tls / "test.env").exists()
+            raise MountChecked
+        return ""
+
+    monkeypatch.setattr(smoke_web, "command", inspect_command)
+    with pytest.raises(MountChecked):
+        smoke_web.run(api_only=True)
+
+
 def test_security_denial_events_are_correlated_and_library_urls_are_suppressed(client, caplog):
     import logging
 

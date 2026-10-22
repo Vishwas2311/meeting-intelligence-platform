@@ -85,6 +85,11 @@ def run(api_only=False):
     )
     with tempfile.TemporaryDirectory(prefix="meeting-test-tls-") as temporary:
         root = Path(temporary)
+        tls = root / "tls"
+        # Bind only disposable certificates; non-root NGINX must traverse the mount.
+        # Keep the parent and its environment file private to the test runner.
+        tls.mkdir(mode=0o755)
+        tls.chmod(0o755)
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
         certificate = (
@@ -103,16 +108,16 @@ def run(api_only=False):
             )
             .sign(key, hashes.SHA256())
         )
-        (root / "privkey.pem").write_bytes(
+        (tls / "privkey.pem").write_bytes(
             key.private_bytes(
                 serialization.Encoding.PEM,
                 serialization.PrivateFormat.PKCS8,
                 serialization.NoEncryption(),
             )
         )
-        (root / "fullchain.pem").write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+        (tls / "fullchain.pem").write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
         # Test-only disposable cert; production uses the company's restricted certificate custody.
-        for file in root.iterdir():
+        for file in tls.iterdir():
             file.chmod(0o644)
         env = root / "test.env"
         token = "synthetic-web-smoke-" + "x" * 40
@@ -170,7 +175,7 @@ def run(api_only=False):
                     "--tmpfs",
                     "/tmp:size=536870912,mode=1777",
                     "--mount",
-                    f"type=bind,source={root},target=/etc/meeting-tls,readonly",
+                    f"type=bind,source={tls},target=/etc/meeting-tls,readonly",
                     frontend,
                 ]
             )
