@@ -8,6 +8,7 @@ __pycache__
 *.pem
 *.zip
 frontend/node_modules
+frontend
 frontend/dist
 frontend/output
 frontend/test-results

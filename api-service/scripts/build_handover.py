@@ -15,7 +15,13 @@ def build():
     result = subprocess.run(
         ["git", "ls-files", "-z"], cwd=repository, check=True, capture_output=True
     )
-    names = [name for name in result.stdout.decode().split("\0") if name]
+    names = [
+        name
+        for name in result.stdout.decode().split("\0")
+        if name
+        and not name.startswith("api-service/frontend/")
+        and name not in {"api-service/tests/ui_bridge.py", "api-service/tests/ui_server.py"}
+    ]
     assert names, "Stage the reviewed source files before creating a handover"
     output = ROOT / "dist/meeting-intelligence-backend.zip"
     output.parent.mkdir(exist_ok=True)
