@@ -4,6 +4,54 @@ from datetime import timedelta
 import pytest
 
 
+@pytest.mark.parametrize("interim_status", [100, 429])
+def test_upload_probe_waits_for_ingress_admission(monkeypatch, interim_status):
+    from types import SimpleNamespace
+
+    from scripts import smoke_web
+
+    connections = []
+
+    class Connection:
+        admitted = False
+        closed = False
+
+        def sendall(self, data):
+            if data.startswith(b"POST "):
+                assert b"Expect: 100-continue\r\n" in data
+                assert b"--synthetic" not in data
+            else:
+                assert self.admitted
+
+        def recv(self, size):
+            self.admitted = interim_status == 100
+            return f"HTTP/1.1 {interim_status} Continue\r\n\r\n".encode()
+
+        def close(self):
+            self.closed = True
+
+    def wrap_socket(*args, **kwargs):
+        connection = Connection()
+        connections.append(connection)
+        return connection
+
+    def post(*args, **kwargs):
+        assert len(connections) == 2 and all(c.admitted for c in connections)
+        return SimpleNamespace(status_code=429, headers={"content-type": "text/html"})
+
+    monkeypatch.setattr(smoke_web.socket, "create_connection", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        smoke_web.ssl, "SSLContext", lambda *args: SimpleNamespace(wrap_socket=wrap_socket)
+    )
+    client = SimpleNamespace(post=post)
+    if interim_status == 100:
+        smoke_web.verify_upload_admission(client, 12345, "synthetic", "/test", 2)
+    else:
+        with pytest.raises(AssertionError, match="before occupying"):
+            smoke_web.verify_upload_admission(client, 12345, "synthetic", "/test", 2)
+    assert all(c.closed for c in connections)
+
+
 def test_gateway_smoke_mounts_traversable_certificates_without_environment(monkeypatch):
     from pathlib import Path
 

@@ -38,11 +38,26 @@ def verify_upload_admission(client, port, token, path, capacity):
             holders.append(connection)
             request = (
                 f"POST {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {token}\r\n"
+                "Expect: 100-continue\r\n"
                 "Content-Type: multipart/form-data; boundary=synthetic\r\nContent-Length: 1000000\r\n\r\n"
+            )
+            connection.sendall(request.encode("ascii"))
+            # Synchronize with NGINX admission instead of racing unread TLS sockets.
+            interim = b""
+            while b"\r\n\r\n" not in interim and len(interim) < 8192:
+                packet = connection.recv(4096)
+                if not packet:
+                    break
+                interim += packet
+            if interim.split(b"\r\n", 1)[0] != b"HTTP/1.1 100 Continue":
+                raise AssertionError(
+                    "Synthetic upload was rejected before occupying an ingress slot"
+                )
+            body = (
                 '--synthetic\r\nContent-Disposition: form-data; name="audio"; filename="test.wav"\r\n'
                 "Content-Type: audio/wav\r\n\r\nx"
             )
-            connection.sendall(request.encode("ascii"))
+            connection.sendall(body.encode("ascii"))
         deadline = time.monotonic() + 5
         observed_statuses = []
         while time.monotonic() < deadline:
